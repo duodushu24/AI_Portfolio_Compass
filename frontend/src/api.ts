@@ -521,6 +521,32 @@ export type FreshnessItem = {
 
 export type WorkspaceMode = "formal" | "demo";
 
+export type DiaryInput = {
+  record_date: string;
+  title: string;
+  body: string;
+  topics: string[];
+  keywords: string[];
+};
+
+export type InvestmentDiary = DiaryInput & {
+  id: number;
+  source_type: string;
+  created_at: string;
+  updated_at: string;
+  markdown_path: string;
+  markdown_saved: boolean;
+};
+
+export type DiaryList = { items: InvestmentDiary[]; count: number; root: string };
+export type DiarySaveResult = {
+  item: InvestmentDiary;
+  database_saved: boolean;
+  markdown_saved: boolean;
+  message: string;
+  file_errors: string[];
+};
+
 const WORKSPACE_STORAGE_KEY = "portfolio_workspace";
 const FORMAL_API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8010";
 const DEMO_API_BASE = import.meta.env.VITE_DEMO_API_BASE ?? "http://127.0.0.1:8011";
@@ -632,6 +658,16 @@ export const api = {
     }),
   dashboard: (accountId = "all") => request<Dashboard>(`/api/dashboard?account_id=${encodeURIComponent(accountId)}`),
   review: (accountId = "all") => request<Review>(`/api/review?account_id=${encodeURIComponent(accountId)}`),
+  diaries: (filters: { start_date?: string; end_date?: string; q?: string; offset?: number } = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
+    return request<DiaryList>(`/api/diaries?${params.toString()}`);
+  },
+  diary: (id: number) => request<{ item: InvestmentDiary }>(`/api/diaries/${id}`),
+  saveDiary: (input: DiaryInput, id?: number) => request<DiarySaveResult>(id ? `/api/diaries/${id}` : "/api/diaries", {
+    method: id ? "PUT" : "POST", body: JSON.stringify(input),
+  }),
+  retryDiaryMarkdown: (id: number) => request<DiarySaveResult>(`/api/diaries/${id}/retry-markdown`, { method: "POST" }),
   tradeReviews: (accountId = "all") => request<TradeReviewList>(`/api/review/trades?account_id=${encodeURIComponent(accountId)}`),
   refreshTradeReviewMarketData: (accountId = "all") => request<{ status: string; message: string; summary: TradeReviewList["summary"] }>(`/api/review/trades/refresh-market-data?account_id=${encodeURIComponent(accountId)}`, { method: "POST" }),
   updateTradeReviewIntent: (reviewId: string, note: string, tags: TradeIntentTags, plan: TradeIntentPlan) =>

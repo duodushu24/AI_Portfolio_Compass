@@ -1,13 +1,29 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
 from .database import Base
+
+
+class InvestmentDiary(Base):
+    __tablename__ = "investment_diaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    record_date: Mapped[date] = mapped_column(Date, index=True)
+    title: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text)
+    topics: Mapped[list[str]] = mapped_column(JSON, default=list)
+    keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_type: Mapped[str] = mapped_column(String, default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    # Only unfinished file writes; no content versions or validity checks.
+    pending_markdown_dates: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
 class Account(Base):

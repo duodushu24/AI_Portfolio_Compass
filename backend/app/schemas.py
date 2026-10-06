@@ -1,9 +1,37 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class InvestmentDiarySaveRequest(BaseModel):
+    record_date: date
+    title: str = Field(default="", max_length=200)
+    body: str = Field(min_length=1)
+    topics: list[str] = Field(default_factory=list, max_length=30)
+    keywords: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("body")
+    @classmethod
+    def nonblank_body(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("日记正文不能为空")
+        return value  # Preserve the original whitespace and text.
+
+    @field_validator("title")
+    @classmethod
+    def single_line_title(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @field_validator("topics", "keywords")
+    @classmethod
+    def normalize_labels(cls, values: list[str]) -> list[str]:
+        result = list(dict.fromkeys(" ".join(value.split()) for value in values if value.strip()))
+        if any(len(value) > 80 for value in result):
+            raise ValueError("每个主题或关键词最多 80 字")
+        return result
 
 
 class LayerOverrideRequest(BaseModel):

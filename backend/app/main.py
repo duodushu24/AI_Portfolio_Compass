@@ -74,9 +74,11 @@ from app.services.profile_workflows import (
 )
 from app.services.trade_review import trade_review_payload, update_trade_review_intent
 from app.services.providers import account_provider_statuses, normalize_market, provider_registry
+from app.diary_routes import router as diary_router
 
 
 app = FastAPI(title="AI Portfolio Compass", version="0.1.0")
+app.include_router(diary_router)
 
 app.add_middleware(
     CORSMiddleware,

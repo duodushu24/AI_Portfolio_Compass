@@ -122,9 +122,12 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 - 决策卡：建议类型、置信度、理由、风险、关键价位和数据状态。
 - 标的详情：持仓、新闻、K 线摘要、AI 分析、仓位类型修正。
 - 交易复盘：成交记录、后续表现、纪律标签和风险项聚焦。
+- 投资日记：在“复盘 → 投资日记”独立录入原文，支持日期筛选、关键词搜索、同日多条记录和编辑；保存到 SQLite 与年月日 Markdown 文件。
 - 组合诊断工作流：客户画像、持仓诊断、资产配置建议等结构化报告。
 - 数据源治理：行情、新闻、汇率、Futu OpenD、Tushare、Alpaca、FMP、Polygon、Alpha Vantage 等可配置 provider。
 - 数据新鲜度矩阵：持仓、成交、行情、资讯、汇率、画像和决策卡都有过期处理。
+
+日记的 Markdown 根目录可在 `.env` 中通过 `PERSONAL_KNOWLEDGE_DIR` 指向投资知识库；未设置时使用本地忽略目录 `data/personal_knowledge`。原文文件位于该根目录下的 `01_原始资料/复盘日记/YYYY/M月/MM.DD.md`。演示模式始终使用隔离的 `data/demo_personal_knowledge`。日记通过应用编辑，数据库保存完整原文；文件写入失败会提示并允许重试。当前已实现原文管理，AI 提炼与确认保存待后续阶段开发。
 
 ## 适合谁
 
@@ -460,6 +463,7 @@ Safety is a first-class design constraint:
 - Decision cards with recommendation, confidence, reasons, risks, key prices, and data status.
 - Position detail pages with holdings, news, K-line summaries, AI analysis, and layer correction.
 - Trade review with execution outcome, later market movement, discipline labels, and risk focus.
+- Independent investment diaries under Review: save original text to SQLite and dated Markdown files, browse/search entries, and edit them. AI distillation is planned for the next phase.
 - Structured AI workflows for customer profiling, portfolio diagnosis, and allocation suggestions.
 - Configurable providers for market data, news, FX, Futu OpenD, Tushare, Alpaca, FMP, Polygon, Alpha Vantage, and more.
 - Freshness rules for holdings, trades, quotes, news, FX rates, profiles, and decision cards.
