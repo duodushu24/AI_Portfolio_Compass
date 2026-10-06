@@ -10,14 +10,14 @@ changes: []
 related: []
 evidence: ["AGENTS.md", "current_state.md", "issues/P-001-personal-records.md", "issues/P-002-evidence-reflection.md"]
 closed_reason: "已解决"
-closed_result: "开发记忆已接入；AGENTS 保留长期约束，current_state 管理动态范围与 P/C 读取规则"
+closed_result: "开发记忆已接入；项目入口不再依赖资料库根规则，状态入口定义问题/实施变更及读取维护约定"
 ---
 
 # P-003：项目开发记忆机制升级
 
 ## 当前进度
 
-项目记忆机制已接入；根据同一验收范围内的用户反馈修正职责分层：AGENTS.md 仅保留长期约束及状态入口，current_state.md 保存动态范围、P/C 读取规则和维护导航。项目总体功能沿用 README 的“当前能力”。本问题保持已结束，本次修正仍以 [P-003] 关联提交。
+项目记忆机制已接入；AGENTS.md 仅保留项目长期约束及状态入口，不再依赖资料库根通用规则。current_state.md 定义问题记录与实施变更记录，保存动态范围、按需读取规则和 Git 维护约定。项目总体功能沿用 README 的“当前能力”。同一验收范围内的入口修正已完成，本问题保持已结束，以 [P-003] 关联提交。
 
 ## 问题与目标
 
@@ -40,6 +40,12 @@ closed_result: "开发记忆已接入；AGENTS 保留长期约束，current_stat
 - 决定与修改：具体 P-001/P-002 范围、四状态摘要、读取顺序和维护导航放入 current_state.md；AGENTS.md 只引导读取该入口并保留长期开发、Git 与验证约束。
 - 读取规则：启动默认读 active P 的摘要和当前相关 C；open/paused 仅看索引，closed 与历史 C 按需下钻，明确任务优先。
 - 功能概览：README 已有“当前能力”，沿用并从 current_state 按需引导；本轮不重新审计或改写产品功能声明，不创建概览副本。
+
+### S-03｜用户级与项目级分工及术语补全｜2026-10-06
+
+- 依据与修改：按用户已确认的分工移除项目对资料库根 AGENTS 的规则依赖，通用原则由用户级配置维护；项目 AGENTS 保留稳定业务约束，Git 与记忆维护约定集中到 current_state。
+- 定义：P 是问题记录，C 是实施变更记录，S 是问题内的尝试；C 与 Git 提交不是一一对应。编号与四状态兼容现有记录，未迁移业务问题或新增变更文件。
+- 边界：仅调整本项目入口和本问题记录，共享 skill 与资料库规则在项目外维护；未改变日记需求或实施业务功能。
 
 ## 结束结论
 
