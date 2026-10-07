@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Alert, Button, Card, Drawer, Empty, Form, Input, Message, Pagination, Spin, Tabs, Tag } from "@arco-design/web-react";
 import { api, DiaryInput, DiaryList, DiarySaveResult, InvestmentDiary } from "../api";
+import { DiaryAnalysisPanel } from "./DiaryAnalysisPanel";
 
 function today() {
   const now = new Date();
@@ -44,12 +45,15 @@ export function DiaryPage({ registerLeaveGuard }: { registerLeaveGuard: (guard: 
   const [saveError, setSaveError] = useState("");
   const dirty = editorOpen && JSON.stringify(draft) !== JSON.stringify(baseline);
   const guardState = useRef({ dirty, saving });
+  const analysisGuard = useRef<(() => boolean) | null>(null);
+  const registerAnalysisGuard = useCallback((guard: (() => boolean) | null) => { analysisGuard.current = guard; }, []);
   guardState.current = { dirty, saving };
 
   useEffect(() => {
     registerLeaveGuard(() => {
       if (guardState.current.saving) { Message.info("正在保存，请稍候。"); return false; }
-      return !guardState.current.dirty || window.confirm("原文修改尚未保存，确定离开并放弃修改吗？");
+      if (guardState.current.dirty && !window.confirm("原文修改尚未保存，确定离开并放弃修改吗？")) return false;
+      return analysisGuard.current?.() ?? true;
     });
     return () => registerLeaveGuard(null);
   }, [registerLeaveGuard]);
@@ -173,6 +177,7 @@ export function DiaryPage({ registerLeaveGuard }: { registerLeaveGuard: (guard: 
           </> : <Empty description="选择一条日记查阅原文，或写下新的记录" />}
         </Card>
       </div>
+      <DiaryAnalysisPanel diary={selected} refreshToken={refresh} onGuard={registerAnalysisGuard} />
       <Drawer visible={editorOpen} title={editingId ? "编辑日记原文" : "写投资日记"} width={640} maskClosable={false} onCancel={closeEditor} footer={<div className="diary-editor-actions"><Button disabled={saving} onClick={closeEditor}>关闭</Button><Button type="primary" loading={saving} onClick={save}>{editingId ? "保存修改" : "保存原文"}</Button></div>}>
         <Form layout="vertical">
           <Form.Item label="记录日期" required><input className="diary-date-input" aria-label="记录日期" type="date" value={draft.record_date} disabled={saving} onChange={(event) => setDraft({ ...draft, record_date: event.target.value })} /></Form.Item>

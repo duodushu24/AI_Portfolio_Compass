@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.futu_adapter import FutuReadOnlyAdapter
 from app.config import get_settings
-from app.database import engine, get_db, init_db
+from app.database import engine, get_db, init_db, SessionLocal
 from app.demo_data import ensure_demo_data
 from app.models import AIAnalysis, Account, AccountSnapshot, AIWorkflowRun, Alert, DataSourceState, Deal, DecisionCard, KlineSnapshot, NewsItem, PositionLayerOverride, PositionSnapshot, QuoteSummary, TradeReview, UserAction
 from app.schemas import DealSaveRequest, DeleteLocalDataRequest, LayerOverrideRequest, PositionSnapshotSaveRequest
@@ -75,10 +75,13 @@ from app.services.profile_workflows import (
 from app.services.trade_review import trade_review_payload, update_trade_review_intent
 from app.services.providers import account_provider_statuses, normalize_market, provider_registry
 from app.diary_routes import router as diary_router
+from app.diary_analysis_routes import router as diary_analysis_router
+from app.services.diary_discussions import initialize_diary_support
 
 
 app = FastAPI(title="AI Portfolio Compass", version="0.1.0")
 app.include_router(diary_router)
+app.include_router(diary_analysis_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,6 +98,8 @@ def on_startup() -> None:
     init_db()
     if ensure_demo_data():
         init_db()
+    with SessionLocal() as db:
+        initialize_diary_support(db)
 
 
 @app.get("/api/health")

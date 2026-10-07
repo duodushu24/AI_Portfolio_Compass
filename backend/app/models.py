@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -24,6 +24,74 @@ class InvestmentDiary(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
     # Only unfinished file writes; no content versions or validity checks.
     pending_markdown_dates: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class DiaryDiscussionSession(Base):
+    __tablename__ = "diary_discussion_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    record_date: Mapped[date] = mapped_column(Date, index=True)
+    diary_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    title: Mapped[str] = mapped_column(String, default="")
+    question: Mapped[str] = mapped_column(Text, default="")
+    background: Mapped[str] = mapped_column(Text, default="")
+    base_summary: Mapped[str] = mapped_column(Text, default="")
+    candidate: Mapped[dict] = mapped_column(JSON, default=dict)
+    needs_summary: Mapped[bool] = mapped_column(Boolean, default=False)
+    generation_status: Mapped[str] = mapped_column(String, default="idle")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class DiaryDiscussionMessage(Base):
+    __tablename__ = "diary_discussion_messages"
+    __table_args__ = (UniqueConstraint("session_id", "sequence"), UniqueConstraint("reply_to_id"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("diary_discussion_sessions.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String)
+    task: Mapped[str] = mapped_column(String, default="discuss")
+    body: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    reply_to_id: Mapped[Optional[int]] = mapped_column(ForeignKey("diary_discussion_messages.id"), nullable=True)
+    provider: Mapped[str] = mapped_column(String, default="")
+    model: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class InvestmentTag(Base):
+    __tablename__ = "investment_tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    definition: Mapped[str] = mapped_column(Text)
+    aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class DiarySummary(Base):
+    __tablename__ = "diary_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    record_date: Mapped[date] = mapped_column(Date, unique=True)
+    diary_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    session_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    title: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text)
+    keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_type: Mapped[str] = mapped_column(String)
+    source_note: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    pending_markdown_dates: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class DiarySummaryTag(Base):
+    __tablename__ = "diary_summary_tags"
+
+    summary_id: Mapped[int] = mapped_column(ForeignKey("diary_summaries.id"), primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("investment_tags.id"), primary_key=True)
 
 
 class Account(Base):

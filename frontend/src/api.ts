@@ -547,6 +547,27 @@ export type DiarySaveResult = {
   file_errors: string[];
 };
 
+export type InvestmentTagInput = { name: string; definition: string; aliases: string[] };
+export type InvestmentTag = InvestmentTagInput & { id: number };
+export type DiaryCandidate = { title: string; body: string; keywords: string[]; tag_ids: number[]; new_tags: InvestmentTagInput[]; accepted_new_tags: number[] };
+export type DiarySummaryInput = DiaryCandidate & {
+  record_date: string; diary_ids: number[]; session_ids: number[];
+  source_type: "in_app_ai" | "external_discussion" | "manual"; source_note: string; confirmed: boolean;
+};
+export type DiarySummary = Omit<DiarySummaryInput, "tag_ids" | "new_tags" | "accepted_new_tags" | "confirmed"> & {
+  id: number; tags: InvestmentTag[]; markdown_path: string; markdown_saved: boolean; created_at: string; updated_at: string;
+};
+export type SummarySaveResult = { item: DiarySummary; database_saved: boolean; markdown_saved: boolean; message: string; file_errors: string[] };
+export type DiaryChatMessage = {
+  id: number; sequence: number; role: "user" | "assistant"; task: "analyze" | "discuss" | "summarize";
+  body: string; status: string; reply_to_id: number | null; provider: string; model: string; created_at: string;
+};
+export type DiaryDiscussion = {
+  id: number; record_date: string; diary_ids: number[]; title: string; question: string; background: string; base_source: string;
+  candidate: Partial<DiaryCandidate>; needs_summary: boolean; generation_status: string; last_error: string;
+  created_at: string; updated_at: string; messages?: DiaryChatMessage[];
+};
+
 const WORKSPACE_STORAGE_KEY = "portfolio_workspace";
 const FORMAL_API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8010";
 const DEMO_API_BASE = import.meta.env.VITE_DEMO_API_BASE ?? "http://127.0.0.1:8011";
@@ -658,7 +679,7 @@ export const api = {
     }),
   dashboard: (accountId = "all") => request<Dashboard>(`/api/dashboard?account_id=${encodeURIComponent(accountId)}`),
   review: (accountId = "all") => request<Review>(`/api/review?account_id=${encodeURIComponent(accountId)}`),
-  diaries: (filters: { start_date?: string; end_date?: string; q?: string; offset?: number } = {}) => {
+  diaries: (filters: { start_date?: string; end_date?: string; q?: string; offset?: number; limit?: number } = {}) => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
     return request<DiaryList>(`/api/diaries?${params.toString()}`);
@@ -668,6 +689,23 @@ export const api = {
     method: id ? "PUT" : "POST", body: JSON.stringify(input),
   }),
   retryDiaryMarkdown: (id: number) => request<DiarySaveResult>(`/api/diaries/${id}/retry-markdown`, { method: "POST" }),
+  investmentTags: () => request<{ items: InvestmentTag[] }>("/api/investment-tags"),
+  saveInvestmentTag: (input: InvestmentTagInput, id?: number) => request<{ item: InvestmentTag; file_errors?: string[] }>(id ? `/api/investment-tags/${id}` : "/api/investment-tags", { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+  mergeInvestmentTag: (id: number, targetId: number) => request<{ item: InvestmentTag; file_errors: string[] }>(`/api/investment-tags/${id}/merge`, { method: "POST", body: JSON.stringify({ target_id: targetId }) }),
+  diarySummaries: (filters: { start_date?: string; end_date?: string; q?: string; tag_id?: number; offset?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
+    return request<{ items: DiarySummary[]; count: number }>(`/api/diary-summaries?${params}`);
+  },
+  saveDiarySummary: (input: DiarySummaryInput, id?: number) => request<SummarySaveResult>(id ? `/api/diary-summaries/${id}` : "/api/diary-summaries", { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+  retrySummaryMarkdown: (id: number) => request<SummarySaveResult>(`/api/diary-summaries/${id}/retry-markdown`, { method: "POST" }),
+  diaryDiscussions: (date?: string, offset = 0) => request<{ items: DiaryDiscussion[]; count: number }>(`/api/diary-discussions?${new URLSearchParams({ ...(date ? { record_date: date } : {}), offset: String(offset) })}`),
+  diaryDiscussion: (id: number) => request<{ item: DiaryDiscussion }>(`/api/diary-discussions/${id}`),
+  createDiaryDiscussion: (input: { record_date: string; diary_ids: number[]; title: string; question: string; background: string; base_summary_id?: number }) => request<{ item: DiaryDiscussion }>("/api/diary-discussions", { method: "POST", body: JSON.stringify(input) }),
+  saveDiaryCandidate: (id: number, candidate: DiaryCandidate) => request<{ item: DiaryDiscussion }>(`/api/diary-discussions/${id}`, { method: "PUT", body: JSON.stringify(candidate) }),
+  addDiaryMessage: (id: number, task: DiaryChatMessage["task"], body: string) => request<{ item: DiaryDiscussion; message_id: number }>(`/api/diary-discussions/${id}/messages`, { method: "POST", body: JSON.stringify({ task, body }) }),
+  generateDiaryReply: (id: number, messageId: number, task: DiaryChatMessage["task"], consent: boolean) => request<{ item: DiaryDiscussion }>(`/api/diary-analysis/${task}`, { method: "POST", body: JSON.stringify({ session_id: id, message_id: messageId, consent_external_ai: consent }) }),
+  suggestDiaryTags: (body: string, consent: boolean) => request<Pick<DiaryCandidate, "tag_ids" | "new_tags">>("/api/diary-analysis/suggest-tags", { method: "POST", body: JSON.stringify({ body, consent_external_ai: consent }) }),
   tradeReviews: (accountId = "all") => request<TradeReviewList>(`/api/review/trades?account_id=${encodeURIComponent(accountId)}`),
   refreshTradeReviewMarketData: (accountId = "all") => request<{ status: string; message: string; summary: TradeReviewList["summary"] }>(`/api/review/trades/refresh-market-data?account_id=${encodeURIComponent(accountId)}`, { method: "POST" }),
   updateTradeReviewIntent: (reviewId: string, note: string, tags: TradeIntentTags, plan: TradeIntentPlan) =>
