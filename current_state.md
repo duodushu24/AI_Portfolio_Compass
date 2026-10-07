@@ -1,7 +1,7 @@
 ---
 schema: project-memory/v1
 kind: index
-updated: "2026-10-06"
+updated: "2026-10-07"
 ---
 
 # 当前状态 — AI Portfolio Compass
@@ -17,9 +17,9 @@ updated: "2026-10-06"
 
 ## 当前焦点与范围
 
-先完成日记写入、对话提炼和确认保存；个人证据复盘在日记功能完成并验收后再推进。2026-10-06，P-001 第一阶段 C-001（日记原文保存与查阅）开发及自动验证完成，等待用户验收；第二阶段提炼对话尚未实施。
+先完成日记写入、分析讨论和总结确认保存；个人证据复盘在日记功能完成并验收后再推进。P-001 第一阶段 C-001 已完成开发与自动验证，用户反馈启动后录入正常，完整验收尚未记录。2026-10-07 已更新第 3 节“AI 分析 / 录入总结”详细规划，等待用户审核；第二阶段尚未实施。
 
-日记功能以 [P-001](issues/P-001-personal-records.md) 中 2026-10-04 的需求与方案为准；后续个人证据复盘见 [P-002](issues/P-002-evidence-reflection.md)。旧 `docs/personal-investment-agent-roadmap.md` 是历史规划，不再作为启动或实施前置，也不反向扩大当前范围。
+日记功能以 [P-001](issues/P-001-personal-records.md) 中 2026-10-04 的范围约束及 2026-10-07 第 3 节更新为准；后续个人证据复盘见 [P-002](issues/P-002-evidence-reflection.md)。旧 `docs/personal-investment-agent-roadmap.md` 是历史规划，不再作为启动或实施前置，也不反向扩大当前范围。
 
 2026-10-02 已完成资料目录整理与 H2 选择性迁移。后续阶段与 Agent 业务开发仍按对应任务授权推进，不能从文档维护推导。
 
@@ -30,7 +30,7 @@ updated: "2026-10-06"
 <!-- project-memory:open:start -->
 | ID | 标题 | 状态 | 下一步 / 恢复条件 |
 |---|---|---|---|
-| [P-001](issues/P-001-personal-records.md) | 投资日记写入、提炼与规范保存 | active | 验收 C-001 第一阶段日记原文功能；获准后实施第二阶段提炼对话 |
+| [P-001](issues/P-001-personal-records.md) | 投资日记写入、提炼与规范保存 | active | 审核第 3 节 AI 分析与录入总结详细规划；确认后实施第二阶段 |
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
 <!-- project-memory:open:end -->
 
