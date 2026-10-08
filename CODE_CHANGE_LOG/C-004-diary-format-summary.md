@@ -7,7 +7,7 @@ status: closed
 created: "2026-10-08"
 updated: "2026-10-08"
 issues: ["P-001"]
-commits: []
+commits: ["04ea350c4e7de1f37278097ee62e488255a20abe"]
 evidence: ["backend/app/services/diary_discussions.py", "backend/app/skills/diary_investment_mentor.md", "backend/app/skills/diary_analysis.md", "backend/app/skills/diary_discussion.md", "backend/app/skills/diary_summary.md", "frontend/src/features/DiaryAnalysisPanel.tsx", "frontend/src/features/portfolioViews.tsx", "frontend/src/styles.css"]
 closed_reason: "本批次实施、直接相关回归与隔离页面检查完成"
 closed_result: "Markdown 阅读与编辑预览、三种任务分工、原文数量及来源说明已实现；实际模型的凝练质量由 P-001 继续试用验收"
@@ -17,7 +17,7 @@ closed_result: "Markdown 阅读与编辑预览、三种任务分工、原文数�
 
 ## 目标与范围
 
-实施用户确认的 P-001 S-02。解决正文格式不统一、分析与总结职责模糊，以及内部原文编号被误读为数量的问题；保留数据库结构、调用次数、讨论持久化、明确确认和正式总结保存边界。
+实施用户确认的 [P-001 / S-002](../issues/P-001-personal-records.md#s-002)。详细补充要求纳入 [S-001 设计](../issues/solutions/P-001/S-001-diary-workflow.md)第 3.1、3.3 节。解决正文格式不统一、分析与总结职责模糊，以及内部原文编号被误读为数量的问题；保留数据库结构、调用次数、讨论持久化、明确确认和正式总结保存边界。
 
 ## 实际修改与进度
 
@@ -37,4 +37,6 @@ closed_result: "Markdown 阅读与编辑预览、三种任务分工、原文数�
 
 总结凝练和投资判断仍需实际模型试用；300—600 字是提示目标，程序不保证字数、准确性或分析与总结语义差异。保留现有 Markdown 解析范围，本批次支持常用标题、列表、加粗等，并非完整 CommonMark 实现。
 
-按项目约定进行本地提交，消息关联 `[P-001][C-004]`；不推送，不纳入无关删除、导出文件、私人运行资料或测试产物。
+## Git 关联
+
+实施提交：`04ea350`（完整哈希见 commits），消息关联 `[P-001][C-004]`。上述验证在该实施提交前针对本批次改动执行；2026-10-08 核对提交消息、改动文件和本记录归属后补录哈希，未重新执行业务测试。

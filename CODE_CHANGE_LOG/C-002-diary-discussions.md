@@ -5,9 +5,9 @@ id: C-002
 title: "日记分析、讨论恢复与总结确认"
 status: closed
 created: "2026-10-07"
-updated: "2026-10-07"
+updated: "2026-10-08"
 issues: ["P-001"]
-commits: []
+commits: ["3079691213df6dcec4445ebd1bad8249f36bee87"]
 evidence: ["backend/app/diary_analysis_routes.py", "backend/app/services/diary_discussions.py", "backend/app/services/diary_summaries.py", "backend/tests/test_diary_discussions.py", "frontend/src/features/DiaryAnalysisPanel.tsx"]
 closed_reason: "本批次代码实施及直接相关自动与页面验证完成"
 closed_result: "两个入口、完整讨论恢复与回看、标签维护及总结确认保存已实现；真实模型分析质量与用户验收由 P-001 继续跟踪"
@@ -17,7 +17,7 @@ closed_result: "两个入口、完整讨论恢复与回看、标签维护及总�
 
 ## 目标与范围
 
-实施已获用户确认的 P-001 第 3 节 A–D：教师分析、外部总结录入、讨论保存与续聊、标签库、最终确认和 Markdown 保存。保留原文功能，不改 Agent 投资分析工作流，不导入历史资料。
+实施已获用户确认的 [P-001 / S-001 设计](../issues/solutions/P-001/S-001-diary-workflow.md)第 3 节及第 3.8 节 A–D：教师分析、外部总结录入、讨论保存与续聊、标签库、最终确认和 Markdown 保存。保留原文功能，不改 Agent 投资分析工作流，不导入历史资料。
 
 ## 实际修改与进度
 
@@ -45,4 +45,6 @@ closed_result: "两个入口、完整讨论恢复与回看、标签维护及总�
 
 验证不代表真实模型投资判断正确；用户实际日记分析质量、标签适用性及完整功能验收仍待试用。未发送文字及尚未成功入库的编辑不保证意外关闭后恢复；完整聊天保留不等于每次都能将无限长度聊天发送给模型。外部 Markdown 编辑不回灌数据库，后端按当前本地单进程方式运行。
 
-本地提交消息关联 `[P-001][C-002]`，不推送，不纳入无关既有删除、导出或私有运行文件。
+## Git 关联
+
+实施提交：`3079691`（完整哈希见 commits），消息关联 `[P-001][C-002]`。上述验证在该实施提交前针对本批次改动执行；2026-10-08 核对提交消息、改动文件和本记录归属后补录哈希，未重新执行业务测试。

@@ -7,7 +7,7 @@ status: closed
 created: "2026-10-08"
 updated: "2026-10-08"
 issues: ["P-004"]
-commits: []
+commits: ["4a53751920aeacb2359132f997e59802ef4326c2"]
 evidence: ["backend/app/services/ai_runtime.py", "backend/app/config.py", ".env.example", "backend/app/services/profile_agent.py"]
 closed_reason: "请求范围内的模型配置更新已完成"
 closed_result: "DeepSeek Flash 默认项、可选项、环境变量示例和备用值统一为 deepseek-flash"
@@ -26,3 +26,7 @@ closed_result: "DeepSeek Flash 默认项、可选项、环境变量示例和备�
 ## 验证与结果
 
 静态检索确认以上模型配置位置已统一。未运行测试或调用真实 DeepSeek API；用户数据库中已保存的模型值仍需在 AI 配置中心重新选择并保存。
+
+## Git 关联
+
+实施提交：`4a53751`（完整哈希见 commits），消息关联 `[P-004][C-003]`。上述静态检查对应该提交中的配置改动；2026-10-08 核对提交范围后补录哈希，仍未运行测试或调用真实 API。
