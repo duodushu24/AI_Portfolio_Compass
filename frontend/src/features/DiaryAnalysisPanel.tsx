@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Card, Checkbox, Drawer, Empty, Input, Message, Pagination, Tag } from "@arco-design/web-react";
 import { api, AIRuntimeConfig, DiaryCandidate, DiaryChatMessage, DiaryDiscussion, DiarySummary, DiarySummaryInput, InvestmentDiary, InvestmentTag, InvestmentTagInput } from "../api";
+import { MarkdownReport, markdownPreviewText } from "./portfolioViews";
 
 const blank = (): DiaryCandidate => ({ title: "", body: "", keywords: [], tag_ids: [], new_tags: [], accepted_new_tags: [] });
 const words = (s: string) => [...new Set(s.split(/[,，、\n]/).map(v => v.trim()).filter(Boolean))];
@@ -25,6 +26,7 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
   const [mode, setMode] = useState<"setup" | "chat" | "external" | "view">("setup");
   const [session, setSession] = useState<DiaryDiscussion | null>(null);
   const [draft, setDraft] = useState<DiaryCandidate>(blank);
+  const [summaryPreview, setSummaryPreview] = useState(false);
   const [saved, setSaved] = useState(JSON.stringify(blank()));
   const [editing, setEditing] = useState<DiarySummary | null>(null);
   const [date, setDate] = useState(localDate());
@@ -156,6 +158,7 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
       const existing = base ?? (await api.diarySummaries({ start_date: value, end_date: value })).items[0];
       setSession(null); setEditing(existing ?? null); setConsent(false); setInput(""); setQuestion(""); setBackground("");
       setDate(value); setMode(modeValue);
+      setSummaryPreview(modeValue === "setup");
       const effective = modeValue === "external" ? existing : base;
       const next = effective ? { ...blank(), title: effective.title, body: effective.body, keywords: effective.keywords, tag_ids: effective.tags.map(t => t.id) } : blank();
       setDraft(next); setSaved(JSON.stringify(next));
@@ -172,6 +175,7 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
       const { item } = await api.diaryDiscussion(id);
       const found = await api.diarySummaries({ start_date: item.record_date, end_date: item.record_date });
       setEditing(found.items[0] ?? null); acceptSession(item); setMode("chat"); setConsent(false); setInput("");
+      setSummaryPreview(true);
       await loadDay(item.record_date, item.diary_ids); setOpen(true);
     });
   }
@@ -259,6 +263,7 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
   const pending = latestUser && latestUser.status !== "complete" ? latestUser : null;
   const update = (patch: Partial<DiaryCandidate>) => { setDraft(v => ({ ...v, ...patch })); setSaveError(""); };
   const choose = (ids: number[], id: number, checked: boolean) => checked ? [...new Set([...ids, id])] : ids.filter(v => v !== id);
+  const selectedOriginals = dayDiaries.filter(d => diaryIds.includes(d.id));
 
   return <div className="stack diary-analysis-panel">
     <div className="diary-heading"><div><h3>分析与总结</h3><p>讨论自动保存；总结经你确认后保存，便于日后复盘。</p></div>
@@ -276,7 +281,7 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
     <div className="diary-layout">
       <Card title={`已确认总结 · ${summaries.count}`}>
         {!summaries.items.length ? <Empty description="暂无已确认总结" /> : summaries.items.map(s => <button key={s.id} className="diary-list-item" onClick={() => void viewSummary(s)}>
-          <small>{s.record_date} · {s.source_note || s.source_type}{!s.markdown_saved ? " · 文件待保存" : ""}</small><strong>{s.title || "日记总结"}</strong><span>{s.body.slice(0, 120)}</span><span>{s.tags.map(t => t.name).join("、")}</span>
+          <small>{s.record_date} · {s.source_note || s.source_type}{!s.markdown_saved ? " · 文件待保存" : ""}</small><strong>{s.title || "日记总结"}</strong><span>{markdownPreviewText(s.body)}</span><span>{s.tags.map(t => t.name).join("、")}</span>
         </button>)}
         {summaries.count > 30 ? <Pagination total={summaries.count} pageSize={30} current={page} onChange={setPage} simple /> : null}
       </Card>
@@ -289,14 +294,16 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
     </div>
     <Drawer visible={open} width="min(1180px, 96vw)" title={mode === "setup" ? "AI 分析 · 新建讨论" : mode === "chat" ? "AI 分析 · 讨论与总结" : readOnly ? "已确认总结" : "录入总结"} maskClosable={false} onCancel={() => void close()} footer={<div className="diary-editor-actions">
       <Button disabled={busy || draftSaving} onClick={() => void close()}>关闭</Button>
-      {mode === "setup" ? <Button type="primary" loading={busy} disabled={!modelReady} onClick={() => void createChat()}>开始分析</Button> : readOnly ? <Button onClick={() => setMode("external")}>编辑总结</Button> : <Button type="primary" loading={busy} disabled={!!blocked || !!session?.needs_summary} onClick={() => void confirmSummary()}>{editing ? "确认更新" : "确认保存"}</Button>}
+      {mode === "setup" ? <Button type="primary" loading={busy} disabled={!modelReady || !diaryIds.length} onClick={() => void createChat()}>开始分析</Button> : readOnly ? <Button onClick={() => { setSummaryPreview(false); setMode("external"); }}>编辑总结</Button> : <Button type="primary" loading={busy} disabled={!!blocked || !!session?.needs_summary} onClick={() => void confirmSummary()}>{editing ? "确认更新" : "确认保存"}</Button>}
     </div>}>
       <div className="stack">
         {saveError ? <Alert type="error" content={saveError} action={session && dirty ? <Button onClick={() => void persistDraft().catch(() => {})}>重试保存进度</Button> : undefined} /> : null}
         {(mode === "setup" || mode === "external") ? <>
           <label>归属日期 <input aria-label="总结日期" type="date" value={date} disabled={!!blocked} onChange={e => { const v = e.target.value; setDate(v); void work(async () => { await loadDay(v, []); }); }} /></label>
-          <div className="stack"><strong>关联原文</strong>{dayDiaries.length ? dayDiaries.map(d => <Checkbox key={d.id} disabled={!!blocked} checked={diaryIds.includes(d.id)} onChange={checked => setDiaryIds(ids => choose(ids, d.id, checked))}>{d.title || "未命名日记"} · {d.body.slice(0, 80)}</Checkbox>) : <p>当天无规范日记。录入总结时可独立保存，请注明来源。</p>}</div>
-        </> : <p className="diary-file">归属日期：{date} · 关联原文：{diaryIds.join("、") || "未关联原文"}</p>}
+          <div className="stack"><strong>{mode === "setup" ? "分析原文" : "总结来源原文"} · 已选 {diaryIds.length} 条日记</strong>
+            {mode === "setup" ? <p>新建讨论默认选中当天全部日记，可取消不相关条目；从已有总结继续讨论时沿用其原文范围。只分析勾选内容，不自动读取其他日期日记。</p> : null}
+            {dayDiaries.length ? dayDiaries.map(d => <Checkbox key={d.id} disabled={!!blocked} checked={diaryIds.includes(d.id)} onChange={checked => setDiaryIds(ids => choose(ids, d.id, checked))}>{d.record_date} · {d.title || "未命名日记"} · {d.body.slice(0, 80)}</Checkbox>) : <p>当天无规范日记。录入总结时可独立保存，请注明来源。</p>}</div>
+        </> : <p className="diary-file">{mode === "chat" ? "分析日期" : "归属日期"}：{date} · {mode === "chat" ? `本次选中 ${diaryIds.length} 条日记` : `总结来源：${diaryIds.length} 条日记原文`}</p>}
         {mode === "setup" ? <><label>关注问题<Input.TextArea aria-label="关注问题" value={question} onChange={setQuestion} autoSize={{ minRows: 2, maxRows: 5 }} /></label><label>个人背景（可选，仅用于本次讨论）<Input.TextArea aria-label="讨论背景" value={background} onChange={setBackground} autoSize={{ minRows: 2, maxRows: 4 }} /></label>
           {editing ? <Alert content="将把当天已有总结作为讨论背景；新的总结确认前不会替换已保存内容。" /> : null}
         </> : null}
@@ -304,9 +311,9 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
           <Checkbox checked={consent} disabled={!!blocked} onChange={setConsent}>{mode === "external" ? "授权将当前总结和标签定义发送给该模型以建议标签" : "授权将选中的原文、背景、该会话完整问答及标签定义发送给该模型"}</Checkbox>
         </div> : null}
         {mode === "chat" ? <>
-          <details><summary>查看本次选中的原文、问题与背景</summary>{dayDiaries.filter(d => diaryIds.includes(d.id)).map(d => <div className="diary-chat-message" key={d.id}><strong>{d.title || "日记"}</strong><div>{d.body}</div></div>)}<p>问题：{session?.question}</p><p>背景：{session?.background || "未填写"}</p></details>
+          <details><summary>查看分析原文（{diaryIds.length} 条）、问题与背景</summary>{originalDetails()}<p>问题：{session?.question}</p><p>背景：{session?.background || "未填写"}</p></details>
           <div className="diary-discussion-layout"><div className="stack"><h3>完整讨论</h3>
-            {(session?.messages ?? []).map(m => <article className={`diary-chat-message ${m.role}`} key={m.id}><small>{m.role === "user" ? "你" : "投资导师"} · {new Date(m.created_at).toLocaleString()}{m.model ? ` · ${m.model}` : ""}{m.status !== "complete" ? ` · ${m.status === "pending" ? "问题已保存，待生成" : m.status === "running" ? "生成中" : "本轮未完成"}` : ""}</small><div>{m.body}</div></article>)}
+            {(session?.messages ?? []).map(m => <article className={`diary-chat-message ${m.role}`} key={m.id}><small>{m.role === "user" ? "你" : "投资导师"} · {new Date(m.created_at).toLocaleString()}{m.model ? ` · ${m.model}` : ""}{m.status !== "complete" ? ` · ${m.status === "pending" ? "问题已保存，待生成" : m.status === "running" ? "生成中" : "本轮未完成"}` : ""}</small>{m.role === "assistant" ? <MarkdownReport text={m.body} presentation="text" /> : <div className="diary-message-text">{m.body}</div>}</article>)}
             {session?.last_error ? <Alert type="warning" content={session.last_error} /> : null}
             {pending ? <Button disabled={!!blocked || !modelReady} loading={busy} onClick={() => void generate(pending.task, pending)}>生成 / 重试本轮</Button> : null}
             <Input.TextArea aria-label="讨论问题" disabled={!!blocked || !!pending} value={input} onChange={setInput} autoSize={{ minRows: 3, maxRows: 7 }} placeholder="提出疑问、补充情况或纠正理解……" />
@@ -334,7 +341,9 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
       {session?.needs_summary ? <Alert type="warning" content="讨论已更新，请先整理总结再确认。" /> : null}
       {session ? <small>{draftSaving ? "正在保存讨论进度…" : dirty ? "候选修改待保存" : "讨论与候选进度已保存；正式总结仍需确认"}</small> : null}
       <label>标题<Input aria-label="总结标题" value={draft.title} disabled={readOnly || !!blocked} maxLength={200} onChange={title => update({ title })} /></label>
-      <label>总结正文<Input.TextArea aria-label="总结正文" value={draft.body} disabled={readOnly || !!blocked} autoSize={{ minRows: 10, maxRows: 28 }} onChange={body => update({ body })} /></label>
+      <div className="stack"><div className="diary-heading"><strong>总结正文</strong>{!readOnly ? <Button size="small" onClick={() => setSummaryPreview(v => !v)}>{summaryPreview ? "编辑正文" : "预览正文"}</Button> : null}</div>
+        {readOnly || summaryPreview ? <div className="diary-summary-preview" aria-label="总结正文预览">{draft.body.trim() ? <MarkdownReport text={draft.body} presentation="text" /> : <p>暂无总结正文。</p>}</div> : <Input.TextArea aria-label="总结正文" value={draft.body} disabled={!!blocked} autoSize={{ minRows: 10, maxRows: 28 }} onChange={body => update({ body })} />}
+      </div>
       <div className="diary-tags">{tags.map(t => <Checkbox key={t.id} title={t.definition} checked={draft.tag_ids.includes(t.id)} disabled={readOnly || !!blocked} onChange={checked => update({ tag_ids: choose(draft.tag_ids, t.id, checked) })}>{t.name}</Checkbox>)}</div>
       {!readOnly ? <Button disabled={!!blocked || !modelReady || !draft.body.trim()} onClick={() => void work(async () => { if (!consent) throw Error("请先勾选模型发送授权"); const result = await api.suggestDiaryTags(draft.body, consent); update({ ...result, accepted_new_tags: [] }); })}>建议标签</Button> : null}
       {draft.new_tags.map((t, i) => <div className="diary-new-tag" key={i}><Checkbox checked={draft.accepted_new_tags.includes(i)} disabled={readOnly || !!blocked} onChange={checked => update({ accepted_new_tags: choose(draft.accepted_new_tags, i, checked) })}>确认新增此标签</Checkbox>
@@ -347,7 +356,11 @@ export function DiaryAnalysisPanel({ diary, refreshToken, onGuard }: {
       <label>来源<select aria-label="总结来源" disabled={readOnly || !!blocked || !!session} value={source} onChange={e => setSource(e.target.value as DiarySummaryInput["source_type"])}><option value="external_discussion">外部讨论</option><option value="manual">手工整理</option><option value="in_app_ai">本项目分析</option></select></label>
       <label>来源说明<Input aria-label="总结来源说明" disabled={readOnly || !!blocked || !!session} value={sourceNote} onChange={setSourceNote} placeholder="例如 ChatGPT、DeepSeek 或其他来源" /></label>
       {editing ? <><p className="diary-file">阅读文件：{editing.markdown_path}</p>{!editing.markdown_saved ? <Button onClick={() => void work(async () => { const result = await api.retrySummaryMarkdown(editing.id); setEditing(result.item); setTick(v => v + 1); if (!result.markdown_saved) setSaveError(result.message); else Message.success("文件已保存"); })}>重试总结文件保存</Button> : null}</> : null}
-      {readOnly ? <div className="stack"><strong>关联原文</strong>{dayDiaries.filter(d => diaryIds.includes(d.id)).map(d => <details key={d.id}><summary>{d.title || `原文 ${d.id}`}</summary><div className="diary-original">{d.body}</div></details>)}<strong>关联讨论</strong>{sessionIds.length ? sessionIds.map(id => <Button key={id} onClick={() => void openChat(id)}>查看讨论 {id}</Button>) : <p>无本项目讨论记录</p>}<Button onClick={() => void start("setup", editing ?? undefined)}>从总结继续讨论</Button></div> : null}
+      {readOnly ? <div className="stack"><strong>总结来源 · {diaryIds.length} 条日记原文</strong>{originalDetails()}<strong>关联讨论</strong>{sessionIds.length ? sessionIds.map(id => <Button key={id} onClick={() => void openChat(id)}>查看讨论 {id}</Button>) : <p>无本项目讨论记录</p>}<Button onClick={() => void start("setup", editing ?? undefined)}>从总结继续讨论</Button></div> : null}
     </div>;
+  }
+
+  function originalDetails() {
+    return selectedOriginals.length ? selectedOriginals.map(d => <details className="diary-source" key={d.id}><summary>{d.record_date} · {d.title || "未命名日记"}</summary><div className="diary-original">{d.body}</div></details>) : <p>未关联原文，请查看来源说明。</p>;
   }
 }

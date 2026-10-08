@@ -2442,13 +2442,19 @@ export function WorkflowArtifactPlaceholder() {
   );
 }
 
-export function MarkdownReport({ text }: { text: string }) {
+export function MarkdownReport({ text, presentation = "report" }: { text: string; presentation?: "report" | "text" }) {
   const blocks = parseMarkdownBlocks(normalizeMarkdownText(text));
-  const headingMeta = getReportHeadingMeta(text);
+  const headingMeta = presentation === "report" ? getReportHeadingMeta(text) : [];
   let headingIndex = 0;
   return (
-    <div className="markdown-report">
+    <div className={`markdown-report${presentation === "text" ? " markdown-text" : ""}`}>
       {blocks.map((block, index) => {
+        if (presentation === "text" && (block.type === "h1" || block.type === "h2" || block.type === "h3" || block.type === "h4")) {
+          const content = renderInlineMarkdown(block.content);
+          if (block.type === "h1") return <h2 className="markdown-text-heading" key={index}>{content}</h2>;
+          if (block.type === "h2") return <h3 className="markdown-text-heading" key={index}>{content}</h3>;
+          return <h4 className="markdown-text-heading" key={index}>{content}</h4>;
+        }
         if (block.type === "h1") {
           const meta = headingMeta[headingIndex++] ?? fallbackHeadingMeta(block.content, headingIndex - 1);
           return <MarkdownHeading meta={meta} key={index} />;
@@ -2592,6 +2598,17 @@ export function normalizeMarkdownText(text: string): string {
   let normalized = text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
   normalized = normalized.replace(/^```(?:markdown|md)?\s*$/gim, "").replace(/^```\s*$/gim, "");
   return normalized;
+}
+
+export function markdownPreviewText(text: string, maxLength = 120): string {
+  const plain = parseMarkdownBlocks(normalizeMarkdownText(text)).map(block => {
+    if (block.type === "hr") return "";
+    if (block.type === "table") return block.rows.map(row => row.join(" ")).join(" ");
+    if ("items" in block) return block.items.join(" ");
+    return block.content;
+  }).join(" ").replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+  return plain.length > maxLength ? `${plain.slice(0, maxLength)}…` : plain;
 }
 
 export function parseMarkdownBlocks(text: string): MarkdownBlock[] {

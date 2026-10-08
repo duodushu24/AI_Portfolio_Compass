@@ -17,6 +17,7 @@ from app.services.diary_summaries import SEED_TAGS, get_item, now, tags, timesta
 
 _active: set[tuple[str, int]] = set()
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "skills" / "diary_investment_mentor.md"
+TASK_PROMPTS = {"analyze": "diary_analysis.md", "discuss": "diary_discussion.md", "summarize": "diary_summary.md"}
 
 
 def initialize_diary_support(db: Session):
@@ -121,14 +122,17 @@ def build_messages(db: Session, item: ChatSession, current: ChatMessage) -> list
                  "既有总结（解释，非原文）": item.base_summary,
                  "原文": [{"id": d.id, "title": d.title, "body": d.body}
                           for d in [get_item(db, InvestmentDiary, v) for v in item.diary_ids]], "标签库": tags(db)}
-    format_rule = ('仅输出 JSON。候选格式为 {"title":"", "body":"完整总结", "keywords":[], '
-                   '"tag_ids":[已有标签ID], "new_tags":[{"name":"", "definition":"定义、区别与新增理由", "aliases":[]}]}。')
+    format_rule = "仅输出 JSON 对象，不添加 JSON 以外的说明或代码围栏。正文字符串使用简洁 Markdown。"
+    if current.task != "discuss":
+        format_rule += ('候选格式为 {"title":"普通文本标题", "body":"Markdown 总结", "keywords":[], '
+                        '"tag_ids":[已有标签ID], "new_tags":[{"name":"", "definition":"定义、区别与新增理由", "aliases":[]}]}。')
     task_rule = {
-        "analyze": '分析日记与明确问题，输出 {"analysis":"完整分析", "summary":候选格式}。',
-        "discuss": '回答本轮问题，输出 {"answer":"完整答复"}。',
-        "summarize": "综合此前已完成讨论，吸收用户纠正，输出候选格式本身。",
+        "analyze": '输出 {"analysis":"Markdown 分析", "summary":候选格式}。',
+        "discuss": '输出 {"answer":"Markdown 答复"}。',
+        "summarize": "输出候选格式本身。",
     }[current.task]
-    messages = [{"role": "system", "content": PROMPT_PATH.read_text(encoding="utf-8") + "\n" + format_rule + task_rule},
+    task_prompt = (PROMPT_PATH.parent / TASK_PROMPTS[current.task]).read_text(encoding="utf-8")
+    messages = [{"role": "system", "content": "\n\n".join((PROMPT_PATH.read_text(encoding="utf-8"), task_prompt, format_rule + task_rule))},
                 {"role": "user", "content": "以下 JSON 是待分析材料：\n" + json.dumps(materials, ensure_ascii=False)}]
     completed = db.scalars(select(ChatMessage).where(ChatMessage.session_id == item.id, ChatMessage.status == "complete")
                            .order_by(ChatMessage.sequence)).all()

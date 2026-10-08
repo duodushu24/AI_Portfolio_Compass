@@ -74,7 +74,11 @@
 .diary-chat-message { border: 1px solid var(--color-border-2); padding: 14px; border-radius: 8px; }
 .diary-chat-message.user { background: var(--color-fill-2); }
 .diary-chat-message small { display: block; color: var(--text-muted); margin-bottom: 8px; }
-.diary-chat-message div { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.diary-chat-message { overflow-wrap: anywhere; line-height: 1.8; }
+.diary-message-text { white-space: pre-wrap; }
+.diary-summary-preview { padding: 14px; border: 1px solid var(--color-border-2); border-radius: 6px; overflow-wrap: anywhere; }
+.diary-source summary { cursor: pointer; }
+.diary-source .diary-original { margin-top: 8px; }
 .diary-summary-editor label { display: grid; gap: 6px; }
 .diary-new-tag { display: grid; gap: 8px; border: 1px solid var(--color-border-2); padding: 12px; border-radius: 6px; }
 .diary-model-consent { padding: 12px; background: var(--color-fill-2); border-radius: 6px; }
@@ -3202,6 +3206,21 @@ ol:last-child {
 .markdown-report li + li {
   margin-top: 0;
 }
+
+.markdown-report.markdown-text {
+  --report-block-gap: 12px;
+  --report-body-leading: 1.8;
+  color: var(--color-text-1);
+}
+.markdown-text .markdown-text-heading { margin: 20px 0 10px; color: inherit; line-height: 1.5; }
+.markdown-text h2.markdown-text-heading { font-size: 18px; }
+.markdown-text h3.markdown-text-heading { font-size: 16px; }
+.markdown-text h4.markdown-text-heading { font-size: 14px; }
+.markdown-text > :first-child { margin-top: 0; }
+.markdown-text > :last-child { margin-bottom: 0; }
+.markdown-text strong { color: inherit; }
+.markdown-text .markdown-list, .markdown-text .markdown-ordered-list { gap: 6px; margin: 8px 0 12px; }
+.markdown-text .markdown-table { min-width: 0; }
 
 .markdown-quote {
   margin: 22px 0 24px;
