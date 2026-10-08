@@ -369,7 +369,7 @@ def _next_action(settings, run: AIWorkflowRun, registry, state: dict[str, Any], 
 
 def _planning_model(settings, run: AIWorkflowRun) -> str:
     selected = str((run.output or {}).get("planning_model") or run.model or settings.deepseek_model or "").strip()
-    return selected or "deepseek-v4-flash"
+    return selected or "deepseek-flash"
 
 
 def _chapters_for_workflow(workflow_type: str) -> list[tuple[str, str]]:

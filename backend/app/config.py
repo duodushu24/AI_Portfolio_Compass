@@ -45,7 +45,7 @@ class Settings:
     diary_context_max_chars: int = int(os.getenv("DIARY_CONTEXT_MAX_CHARS", "60000"))
     diary_output_max_chars: int = int(os.getenv("DIARY_OUTPUT_MAX_CHARS", "30000"))
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
-    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     @property
     def sqlite_encryption_ready(self) -> bool:
