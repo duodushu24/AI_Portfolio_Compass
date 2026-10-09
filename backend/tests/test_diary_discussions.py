@@ -141,6 +141,34 @@ def test_complete_discussion_context_correction_recovery_and_confirm_gate(record
     assert client.get(f"/api/diary-discussions/{sid}").json()["item"]["candidate"]["body"] == saved.json()["item"]["body"]
 
 
+def test_task_prompt_composition_keeps_summary_rules_out_of_discussion(records):
+    client, sessions, root, monkeypatch = records
+    did = diary(client)
+    sid = session(client, [did])
+    prompt_dir = root / "prompts"
+    prompt_dir.mkdir()
+    common = prompt_dir / "diary_investment_mentor.md"
+    common.write_text("COMMON_MARKER", encoding="utf-8")
+    for task, filename in chats.TASK_PROMPTS.items():
+        (prompt_dir / filename).write_text(f"{task.upper()}_MARKER", encoding="utf-8")
+    monkeypatch.setattr(chats, "PROMPT_PATH", common)
+    expected = {
+        "analyze": {"ANALYZE_MARKER", "SUMMARIZE_MARKER"},
+        "discuss": {"DISCUSS_MARKER"},
+        "summarize": {"SUMMARIZE_MARKER"},
+    }
+    with sessions() as db:
+        item = db.get(DiaryDiscussionSession, sid)
+        for task, markers in expected.items():
+            current = DiaryDiscussionMessage(task=task, body="虚构本轮问题")
+            messages = chats.build_messages(db, item, current)
+            system = messages[0]["content"]
+            assert "COMMON_MARKER" in system
+            actual = {f"{t.upper()}_MARKER" for t in expected if f"{t.upper()}_MARKER" in system}
+            assert actual == markers
+            assert messages[-1] == {"role": "user", "content": current.body}
+
+
 def test_authorization_and_unconfigured_model_do_not_generate(records):
     client, _, _, monkeypatch = records
     sid = session(client, [diary(client)])

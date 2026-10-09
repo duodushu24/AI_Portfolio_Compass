@@ -132,6 +132,9 @@ def build_messages(db: Session, item: ChatSession, current: ChatMessage) -> list
         "summarize": "输出候选格式本身。",
     }[current.task]
     task_prompt = (PROMPT_PATH.parent / TASK_PROMPTS[current.task]).read_text(encoding="utf-8")
+    if current.task == "analyze":
+        # Initial analysis also produces a candidate; keep its rules in one shared file.
+        task_prompt += "\n\n" + (PROMPT_PATH.parent / TASK_PROMPTS["summarize"]).read_text(encoding="utf-8")
     messages = [{"role": "system", "content": "\n\n".join((PROMPT_PATH.read_text(encoding="utf-8"), task_prompt, format_rule + task_rule))},
                 {"role": "user", "content": "以下 JSON 是待分析材料：\n" + json.dumps(materials, ensure_ascii=False)}]
     completed = db.scalars(select(ChatMessage).where(ChatMessage.session_id == item.id, ChatMessage.status == "complete")
