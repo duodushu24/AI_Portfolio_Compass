@@ -147,11 +147,11 @@ def test_task_prompt_composition_keeps_summary_rules_out_of_discussion(records):
     sid = session(client, [did])
     prompt_dir = root / "prompts"
     prompt_dir.mkdir()
-    common = prompt_dir / "diary_investment_mentor.md"
+    common = prompt_dir / "base.md"
     common.write_text("COMMON_MARKER", encoding="utf-8")
     for task, filename in chats.TASK_PROMPTS.items():
         (prompt_dir / filename).write_text(f"{task.upper()}_MARKER", encoding="utf-8")
-    monkeypatch.setattr(chats, "PROMPT_PATH", common)
+    monkeypatch.setattr(chats, "PROMPT_DIR", prompt_dir)
     expected = {
         "analyze": {"ANALYZE_MARKER", "SUMMARIZE_MARKER"},
         "discuss": {"DISCUSS_MARKER"},

@@ -16,8 +16,8 @@ from app.services.diary_summaries import SEED_TAGS, get_item, now, tags, timesta
 
 
 _active: set[tuple[str, int]] = set()
-PROMPT_PATH = Path(__file__).resolve().parents[1] / "skills" / "diary_investment_mentor.md"
-TASK_PROMPTS = {"analyze": "diary_analysis.md", "discuss": "diary_discussion.md", "summarize": "diary_summary.md"}
+PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "diary"
+TASK_PROMPTS = {"analyze": "analyze.md", "discuss": "discuss.md", "summarize": "summary.md"}
 
 
 def initialize_diary_support(db: Session):
@@ -131,11 +131,12 @@ def build_messages(db: Session, item: ChatSession, current: ChatMessage) -> list
         "discuss": '输出 {"answer":"Markdown 答复"}。',
         "summarize": "输出候选格式本身。",
     }[current.task]
-    task_prompt = (PROMPT_PATH.parent / TASK_PROMPTS[current.task]).read_text(encoding="utf-8")
+    task_prompt = (PROMPT_DIR / TASK_PROMPTS[current.task]).read_text(encoding="utf-8")
     if current.task == "analyze":
         # Initial analysis also produces a candidate; keep its rules in one shared file.
-        task_prompt += "\n\n" + (PROMPT_PATH.parent / TASK_PROMPTS["summarize"]).read_text(encoding="utf-8")
-    messages = [{"role": "system", "content": "\n\n".join((PROMPT_PATH.read_text(encoding="utf-8"), task_prompt, format_rule + task_rule))},
+        task_prompt += "\n\n" + (PROMPT_DIR / TASK_PROMPTS["summarize"]).read_text(encoding="utf-8")
+    base_prompt = (PROMPT_DIR / "base.md").read_text(encoding="utf-8")
+    messages = [{"role": "system", "content": "\n\n".join((base_prompt, task_prompt, format_rule + task_rule))},
                 {"role": "user", "content": "以下 JSON 是待分析材料：\n" + json.dumps(materials, ensure_ascii=False)}]
     completed = db.scalars(select(ChatMessage).where(ChatMessage.session_id == item.id, ChatMessage.status == "complete")
                            .order_by(ChatMessage.sequence)).all()
