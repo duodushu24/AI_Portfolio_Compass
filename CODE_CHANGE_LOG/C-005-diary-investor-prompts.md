@@ -8,12 +8,14 @@ created: "2026-10-09"
 updated: "2026-10-09"
 issues: ["P-001"]
 commits: ["d61a3a3799deeee568f10baba89b9ca5fda2f719"]
-evidence: ["backend/app/skills/diary_investment_mentor.md", "backend/app/skills/diary_analysis.md", "backend/app/skills/diary_discussion.md", "backend/app/skills/diary_summary.md", "backend/app/services/diary_discussions.py", "backend/tests/test_diary_discussions.py"]
+evidence: ["backend/app/prompts/diary/base.md", "backend/app/prompts/diary/analyze.md", "backend/app/prompts/diary/discuss.md", "backend/app/prompts/diary/summary.md", "backend/app/services/diary_discussions.py", "backend/tests/test_diary_discussions.py"]
 closed_reason: "四份提示词及必要加载调整已完成并通过最小相关验证"
 closed_result: "共同身份、开放分析与三种任务职责分离，初次分析复用总结规则；实际模型效果继续由 P-001 试用验收"
 ---
 
 # C-005：职业投资者定位与日记任务提示词去重
+
+提示词已在 C-006 迁至 `backend/app/prompts/diary/`，上方 evidence 指向现行位置；本批次当时的文本及路径以 commits 中的实施提交为准，以下历史行为和验证结论保持原意。
 
 ## 目标与范围
 

@@ -5,15 +5,17 @@ id: C-004
 title: "日记 Markdown 展示、总结分工与原文范围说明"
 status: closed
 created: "2026-10-08"
-updated: "2026-10-08"
+updated: "2026-10-09"
 issues: ["P-001"]
 commits: ["04ea350c4e7de1f37278097ee62e488255a20abe"]
-evidence: ["backend/app/services/diary_discussions.py", "backend/app/skills/diary_investment_mentor.md", "backend/app/skills/diary_analysis.md", "backend/app/skills/diary_discussion.md", "backend/app/skills/diary_summary.md", "frontend/src/features/DiaryAnalysisPanel.tsx", "frontend/src/features/portfolioViews.tsx", "frontend/src/styles.css"]
+evidence: ["backend/app/services/diary_discussions.py", "backend/app/prompts/diary/base.md", "backend/app/prompts/diary/analyze.md", "backend/app/prompts/diary/discuss.md", "backend/app/prompts/diary/summary.md", "frontend/src/features/DiaryAnalysisPanel.tsx", "frontend/src/features/portfolioViews.tsx", "frontend/src/styles.css"]
 closed_reason: "本批次实施、直接相关回归与隔离页面检查完成"
 closed_result: "Markdown 阅读与编辑预览、三种任务分工、原文数量及来源说明已实现；实际模型的凝练质量由 P-001 继续试用验收"
 ---
 
 # C-004：日记 Markdown 展示、总结分工与原文范围说明
+
+提示词已在 C-006 迁至 `backend/app/prompts/diary/`，上方 evidence 指向现行位置；本批次当时的文本及路径以 commits 中的实施提交为准，以下历史行为和验证结论保持原意。
 
 ## 目标与范围
 
