@@ -7,7 +7,7 @@ status: closed
 created: "2026-10-13"
 updated: "2026-10-13"
 issues: ["P-005"]
-commits: []
+commits: ["4435e04a66394ced842edd896e2d43871d20e299"]
 evidence: ["backend/app/main.py", "backend/app/routers/portfolio.py", "backend/app/services/portfolio/ledger.py", "backend/app/services/portfolio/performance.py", "backend/app/services/portfolio/service.py", "backend/tests/test_portfolio_ledger.py", "frontend/src/features/portfolioViews.tsx", "frontend/src/features/portfolio/PortfolioPanel.tsx", "frontend/src/features/portfolio/PortfolioWorkbench.tsx", "issues/solutions/P-005/S-002-account-ledger-performance.md"]
 closed_reason: "本轮试用问题修正与直接相关验证完成"
 closed_result: "数据页只保留一份持仓、补齐分阶段清仓收益率、来源按实际日期核对，首笔交易与更早历史使用同一账目服务；真实账户不自动迁移"
@@ -37,4 +37,4 @@ closed_result: "数据页只保留一份持仓、补齐分阶段清仓收益率�
 - 真实数据库、账户期初和交易未自动更改，私有信息未写入本记录或测试。尚未在用户真实账目验收；历史数据由用户逐段录入。历史首笔报价与观察点不等同于完整每日行情，历史价格/汇率不足继续标注，未调用实际行情、OpenD 或外部模型。
 - 在历史表单关闭前尚未确认的本批记录只保留于当前页面；每段补录需覆盖到原起点并核对。既有真实负债或复杂待确认业务仍需对应事实，不用未知数据凑平，也未增加历史文件自动转换。
 
-项目记录检查为 15 条记录、2 个当前方案、0 个错误；普通 Markdown 方案只覆盖路径归属，非业务验收。隔离服务和隐藏浏览器已停止，未重启用户正式服务。实施提交在收尾回填，未推送。P-005 保持 active，等待用户实际使用验收。
+项目记录检查为 15 条记录、2 个当前方案、0 个错误；普通 Markdown 方案只覆盖路径归属，非业务验收。隔离服务和隐藏浏览器已停止，未重启用户正式服务。实施提交已回填，暂存范围核对不含私有数据或用户原有改动，未推送。P-005 保持 active，等待用户实际使用验收。
