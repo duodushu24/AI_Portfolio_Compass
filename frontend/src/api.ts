@@ -110,6 +110,8 @@ export type DecisionCard = {
 };
 
 export type Position = {
+  cost_method?: "average" | "unknown";
+  cost_cny_amount?: string | null;
   account_id: string;
   code: string;
   name: string;
@@ -136,6 +138,9 @@ export type Position = {
 };
 
 export type PositionSnapshotPayload = {
+  save_mode?: "new" | "correction";
+  cost_method?: "average" | "unknown";
+  cost_cny_amount?: string | null;
   original_code?: string;
   original_snapshot_time?: string;
   code: string;
@@ -182,6 +187,10 @@ export type AccountSummary = {
 };
 
 export type ImportPreview = {
+  holding_completeness?: "partial" | "full";
+  holding_market?: string;
+  holding_observed_at?: string;
+  confirm_average_cost?: boolean;
   source_name: string;
   filename: string;
   import_hash: string;
@@ -646,7 +655,53 @@ function filenameFromDisposition(disposition: string | null) {
   return plain?.[1] ?? "";
 }
 
+export type ReturnDraftItem = {
+  position_id: number; account_id: string; code: string; name: string;
+  quantity: number; average_cost: number; raw_currency: string; snapshot_time: string;
+  cost_method: string; confirm_average_cost: boolean; cost_cny_amount: string | null;
+  price: string | null; price_at: string; fx_rate: string | null; source: string; price_kind: "price" | "nav" | "estimate";
+};
+export type ReturnPriceInput = Pick<ReturnDraftItem, "position_id" | "account_id" | "code" | "confirm_average_cost" | "cost_cny_amount" | "price" | "price_at" | "fx_rate" | "source" | "price_kind"> & {
+  holding_quantity?: string; holding_average_cost?: string; holding_currency?: string; price_currency?: string;
+};
+export type ReturnPayload = { observed_at: string; account_ids: string[]; currency: string; note: string; inputs: ReturnPriceInput[] };
+export type ReturnItem = {
+  position_id: number; account_id: string; code: string; name: string; quantity: string | null; average_cost: string | null;
+  raw_currency: string; cost_method: string; cost: string | null; price: string | null; price_at: string | null;
+  source: string; price_kind: string; fx_rate: string | null; market_value: string | null;
+  pnl: string | null; return_ratio: string | null; problems: string[]; stale: boolean;
+};
+export type ReturnPoint = {
+  id: number; observed_at: string; account_ids: string[]; currency: string; note: string;
+  inputs: ReturnPriceInput[]; items: ReturnItem[]; return_ratio: string | null;
+  status: string; holding_count: number; covered_count: number; price_warning: boolean; holdings_changed: boolean;
+  asset_returns: Record<string, string | null>;
+  scope_warning: boolean;
+};
+export type ReturnEvent = { id: number; account_id: string; code: string; side: string; quantity: number; price: number; deal_time: string;
+  fees: Record<string, number | null>; before: { quantity: number; average_cost: number; observed_at: string } | null;
+  after: { quantity: number; average_cost: number | null; observed_at: string } | null; detail_note: string };
+export type ReturnSeries = { account_ids: string[]; available_scopes: string[][]; currency: string; items: ReturnPoint[]; events: ReturnEvent[]; other_scope_count: number; cumulative_available: boolean; cumulative_reason: string };
+export type HoldingHistoryItem = Position & { id: number; is_void: boolean; is_current: boolean; completeness: string; batch_id: number | null };
+export type HoldingBatch = { id: number; account_id: string; market: string; completeness: string; observed_at: string; source: string };
+
 export const api = {
+  returnDraft: (accountId: string, observedAt: string, currency: string, accountIds?: string[]) => {
+    const query = new URLSearchParams({ account_id: accountId, observed_at: observedAt, currency });
+    accountIds?.forEach(id => query.append("account_ids", id));
+    return request<{ account_ids: string[]; items: ReturnDraftItem[] }>(`/api/returns/draft?${query}`);
+  },
+  returnSeries: (accountId: string, currency: string, start = "", end = "", accountIds?: string[]) => {
+    const query = new URLSearchParams({ account_id: accountId, currency });
+    if (start) query.set("start", start);
+    if (end) query.set("end", end);
+    accountIds?.forEach(id => query.append("account_ids", id));
+    return request<ReturnSeries>(`/api/returns/series?${query}`);
+  },
+  saveReturn: (payload: ReturnPayload, id?: number) => request<{ item: ReturnPoint }>(`/api/returns/observations${id ? `/${id}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(payload) }),
+  deleteReturn: (id: number) => request(`/api/returns/observations/${id}`, { method: "DELETE" }),
+  holdingHistory: (accountId: string, at = "") => request<{ items: HoldingHistoryItem[]; batches: HoldingBatch[]; current_ids: number[] }>(`/api/returns/history?account_id=${encodeURIComponent(accountId)}${at ? `&at=${encodeURIComponent(at)}` : ""}`),
+  confirmEmptyHoldings: (accountId: string, observedAt: string, market: string) => request(`/api/returns/accounts/${encodeURIComponent(accountId)}/empty`, { method: "POST", body: JSON.stringify({ observed_at: observedAt, market, confirmation: "EMPTY_SCOPE" }) }),
   workspace: currentWorkspace,
   setWorkspace: (workspace: WorkspaceMode) => localStorage.setItem(WORKSPACE_STORAGE_KEY, workspace),
   health: () => request<HealthStatus>("/api/health"),

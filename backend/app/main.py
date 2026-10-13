@@ -77,11 +77,16 @@ from app.services.providers import account_provider_statuses, normalize_market, 
 from app.diary_routes import router as diary_router
 from app.diary_analysis_routes import router as diary_analysis_router
 from app.services.diary_discussions import initialize_diary_support
+from app.routers.return_history import router as return_router
+from app.models import HoldingObservationBatch, ReturnObservation
+from app.services.holding_history import new_batch
+from app.services.return_history import refresh_observations
 
 
 app = FastAPI(title="AI Portfolio Compass", version="0.1.0")
 app.include_router(diary_router)
 app.include_router(diary_analysis_router)
+app.include_router(return_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -361,6 +366,10 @@ def delete_account(account_id: str, confirm_with_data: bool = Query(False), db: 
         db.execute(delete(PositionSnapshot).where(PositionSnapshot.account_id == account_id))
         db.execute(delete(Deal).where(Deal.account_id == account_id))
         db.execute(delete(TradeReview).where(TradeReview.account_id == account_id))
+    db.execute(delete(HoldingObservationBatch).where(HoldingObservationBatch.account_id == account_id))
+    for observation in db.scalars(select(ReturnObservation)).all():
+        if account_id in observation.account_ids:
+            db.delete(observation)
     db.delete(account)
     db.commit()
     return {"status": "deleted", "data_counts": data_counts}
@@ -965,7 +974,24 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
     snapshot_time = _as_utc_naive(request.snapshot_time)
     original_time = _as_utc_naive(request.original_snapshot_time) if request.original_snapshot_time else snapshot_time
     original_code = (request.original_code or code).strip()
-    position = _find_position_for_manual_save(db, account_id, original_code, original_time, code, snapshot_time)
+    position = None
+    if request.save_mode == "correction":
+        position = db.scalar(select(PositionSnapshot).where(PositionSnapshot.account_id == account_id,
+            PositionSnapshot.code == original_code, PositionSnapshot.snapshot_time == original_time))
+        if position is None:
+            raise HTTPException(404, "待纠正的记录不存在，请重新打开")
+        if code != original_code or snapshot_time != original_time:
+            raise HTTPException(400, "纠错保留记录的标的和实际时间；其他标的或时点请记录新状态")
+        batch = db.get(HoldingObservationBatch, position.batch_id) if position.batch_id else None
+        if batch and batch.completeness == "full" and (snapshot_time != batch.observed_at or
+                (batch.market and normalize_market(request.market) != batch.market)):
+            raise HTTPException(400, "完整批次的时间和市场范围需保持一致；其他时点请记录新状态")
+    conflict = db.scalar(select(PositionSnapshot).where(PositionSnapshot.account_id == account_id,
+        PositionSnapshot.code == code, PositionSnapshot.snapshot_time == snapshot_time))
+    if conflict and (position is None or conflict.id != position.id):
+        raise HTTPException(409, "相同时点已有该标的记录，请选择纠正旧记录或不同的实际时点")
+    if request.average_cost < 0 or request.current_price < 0:
+        raise HTTPException(400, "平均成本和当前价格不能为负")
 
     currency = (request.currency or request.normalized_currency or account.base_currency or "CNY").strip().upper()
     normalized_currency = (request.normalized_currency or currency).strip().upper()
@@ -982,6 +1008,7 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
 
     if position is None:
         position = PositionSnapshot(account_id=account_id)
+        position.batch_id = new_batch(db, account_id, snapshot_time, source="手工记录新状态").id
     position.code = code
     position.name = request.name.strip() or code
     raw_market = request.market.strip() or (code.split(".", 1)[0] if "." in code else "")
@@ -989,6 +1016,9 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
     position.asset_type = request.asset_type.strip() or "stock"
     position.quantity = request.quantity
     position.average_cost = request.average_cost
+    position.cost_method = request.cost_method
+    position.cost_cny_amount = request.cost_cny_amount
+    position.is_void = False
     position.current_price = request.current_price
     position.raw_market_value = raw_market_value
     position.raw_currency = currency
@@ -1006,6 +1036,7 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
     position.sync_id = f"manual_position_{account_id}"
     db.add(position)
     db.flush()
+    refresh_observations(db)
     _recalculate_account_position_weights(db, account_id)
     db.commit()
     return {"status": "saved", "overview": account_data_overview(account_id, db)}
@@ -1024,10 +1055,11 @@ def delete_account_position(account_id: str, code: str = Query(...), snapshot_ti
             PositionSnapshot.snapshot_time == target_time,
         )
     )
-    if not position:
+    if not position or position.is_void:
         raise HTTPException(status_code=404, detail="Position not found")
-    db.delete(position)
+    position.is_void = True
     db.flush()
+    refresh_observations(db)
     _recalculate_account_position_weights(db, account_id)
     db.commit()
     return {"status": "deleted", "overview": account_data_overview(account_id, db)}
@@ -1302,6 +1334,8 @@ def _account_data_counts(db: Session, account_id: str) -> dict:
     return {
         "asset_snapshots": db.scalar(select(func.count()).select_from(AccountSnapshot).where(AccountSnapshot.account_id == account_id)) or 0,
         "positions": db.scalar(select(func.count()).select_from(PositionSnapshot).where(PositionSnapshot.account_id == account_id)) or 0,
+        "holding_batches": db.scalar(select(func.count()).select_from(HoldingObservationBatch).where(HoldingObservationBatch.account_id == account_id)) or 0,
+        "return_observations": sum(account_id in r.account_ids for r in db.scalars(select(ReturnObservation)).all()),
         "deals": db.scalar(select(func.count()).select_from(Deal).where(Deal.account_id == account_id)) or 0,
     }
 
@@ -1380,7 +1414,7 @@ def _asset_snapshot_to_dict(item) -> dict:
         "market_value": item.market_value,
         "currency": _snapshot_currency(item),
         "raw_currency_values": item.raw_currency_values,
-        "snapshot_time": item.snapshot_time,
+        "snapshot_time": _as_utc_naive(item.snapshot_time).isoformat() + "Z",
         "sync_id": item.sync_id,
     }
 
@@ -1406,51 +1440,6 @@ def _as_utc_naive(value: datetime) -> datetime:
     return value
 
 
-def _find_position_for_manual_save(
-    db: Session,
-    account_id: str,
-    original_code: str,
-    original_time: datetime,
-    code: str,
-    snapshot_time: datetime,
-) -> PositionSnapshot | None:
-    original = db.scalar(
-        select(PositionSnapshot).where(
-            PositionSnapshot.account_id == account_id,
-            PositionSnapshot.code == original_code,
-            PositionSnapshot.snapshot_time == original_time,
-        )
-    )
-    target = db.scalar(
-        select(PositionSnapshot).where(
-            PositionSnapshot.account_id == account_id,
-            PositionSnapshot.code == code,
-            PositionSnapshot.snapshot_time == snapshot_time,
-        )
-    )
-    if original and target and original.id != target.id:
-        db.delete(original)
-        db.flush()
-        return target
-    if original or target:
-        return original or target
-
-    candidates = list(
-        db.scalars(
-            select(PositionSnapshot).where(
-                PositionSnapshot.account_id == account_id,
-                PositionSnapshot.code == original_code,
-            )
-        ).all()
-    )
-    if not candidates:
-        return None
-    nearest = min(candidates, key=lambda item: abs(item.snapshot_time - original_time))
-    if abs(nearest.snapshot_time - original_time) <= timedelta(hours=12):
-        return nearest
-    return None
-
-
 def _recalculate_account_position_weights(db: Session, account_id: str) -> None:
     snapshot = next(iter(latest_account_snapshots(db, account_id)), None)
     latest = latest_positions(db, account_id)
@@ -1474,6 +1463,8 @@ def _position_to_dict(item) -> dict:
         "quantity": item.quantity,
         "current_price": item.current_price,
         "average_cost": item.average_cost,
+        "cost_method": item.cost_method,
+        "cost_cny_amount": str(item.cost_cny_amount) if item.cost_cny_amount else None,
         "raw_market_value": item.raw_market_value,
         "raw_currency": item.raw_currency,
         "normalized_market_value": item.normalized_market_value,
@@ -1486,7 +1477,7 @@ def _position_to_dict(item) -> dict:
         "layer_confidence": item.layer_confidence,
         "layer_reason": item.layer_reason,
         "missing_market_code": item.missing_market_code,
-        "snapshot_time": item.snapshot_time,
+        "snapshot_time": _as_utc_naive(item.snapshot_time).isoformat() + "Z",
     }
 
 

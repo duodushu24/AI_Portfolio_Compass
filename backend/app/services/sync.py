@@ -22,6 +22,8 @@ from app.models import (
     NewsItem,
     PositionLayerOverride,
     PositionSnapshot,
+    HoldingObservationBatch,
+    ReturnObservation,
     ProfileVersion,
     QuoteSummary,
     ReviewReport,
@@ -34,6 +36,7 @@ from app.services.classifier import POSITION_LAYERS, PositionFacts, classify_pos
 from app.services.freshness import alert_cooldown_seconds, evaluate_freshness, page_freshness_summary
 from app.services.providers import normalize_market
 from app.services.trade_review import refresh_trade_reviews
+from app.services.holding_history import new_batch, positions_as_of
 
 
 MANUAL_SYNC_DEBOUNCE_SECONDS = 10
@@ -234,7 +237,26 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
     deal_stats = _deal_stats(snapshot.deals)
     override_by_code = {item.code: item for item in db.scalars(select(PositionLayerOverride)).all()}
 
+    batch_by_scope = {}
+    for scope in getattr(snapshot, "holding_scopes", []):
+        batch = new_batch(db, **scope, sync_id=sync_id)
+        batch_by_scope[(batch.account_id, batch.market, batch.observed_at)] = batch
+
     for payload in snapshot.positions:
+        from app.services.holding_history import utc_naive
+        payload["snapshot_time"] = utc_naive(payload["snapshot_time"])
+        payload["market"] = normalize_market(payload["market"])
+        batch = next((b for b in batch_by_scope.values() if b.account_id == payload["account_id"]
+                      and (not b.market or b.market == payload["market"])
+                      and b.observed_at == payload["snapshot_time"]), None)
+        if batch is None:
+            key = (payload["account_id"], payload["market"], payload["snapshot_time"])
+            batch = batch_by_scope.get(key)
+            if batch is None:
+                batch = new_batch(db, payload["account_id"], payload["snapshot_time"], market=payload["market"],
+                                  source=sync_id)
+                batch_by_scope[key] = batch
+        payload["batch_id"] = batch.id
         stats = deal_stats[payload["code"]]
         override = override_by_code.get(payload["code"])
         requested_layer = payload.pop("requested_position_layer", "")
@@ -264,8 +286,21 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
                 "sync_id": sync_id,
             }
         )
-        db.add(PositionSnapshot(**payload))
-        inserted += 1
+        existing_position = db.scalar(select(PositionSnapshot).where(PositionSnapshot.account_id == payload["account_id"],
+                PositionSnapshot.code == payload["code"], PositionSnapshot.snapshot_time == payload["snapshot_time"]))
+        if existing_position:
+            same_fact = all(getattr(existing_position, key) == payload.get(key) for key in (
+                "quantity", "average_cost", "current_price", "raw_currency", "market", "asset_type"))
+            if not same_fact or existing_position.is_void:
+                raise ValueError("该账户标的在相同时点已有不同记录；请纠错或选择新的实际时点")
+            existing_position.batch_id = batch.id
+            if payload.get("cost_method") == "average":
+                existing_position.cost_method = "average"
+            updated += 1
+        else:
+            db.add(PositionSnapshot(**payload))
+            inserted += 1
+        db.flush()
 
     for payload in snapshot.deals:
         existing = db.scalar(
@@ -306,6 +341,8 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
             db.add(NewsItem(sync_id=sync_id, **payload))
             inserted += 1
 
+    from app.services.return_history import refresh_observations
+    refresh_observations(db)
     _mark_freshness_states(db, snapshot)
     _create_profile(db)
     _create_review(db)
@@ -319,34 +356,7 @@ def latest_sync(db: Session) -> SyncTask | None:
 
 
 def latest_positions(db: Session, account_id: Optional[str] = None) -> list[PositionSnapshot]:
-    filters = []
-    if account_id and account_id != "all":
-        filters.append(PositionSnapshot.account_id == account_id)
-    invalid_sync_ids = sample_template_sync_ids(db)
-    if invalid_sync_ids:
-        filters.append(PositionSnapshot.sync_id.notin_(invalid_sync_ids))
-    subq = (
-        select(
-            PositionSnapshot.account_id,
-            PositionSnapshot.code,
-            func.max(PositionSnapshot.snapshot_time).label("latest"),
-        )
-        .where(*filters)
-        .group_by(PositionSnapshot.account_id, PositionSnapshot.code)
-        .subquery()
-    )
-    positions = list(
-        db.scalars(
-            select(PositionSnapshot)
-            .join(
-                subq,
-                (PositionSnapshot.account_id == subq.c.account_id)
-                & (PositionSnapshot.code == subq.c.code)
-                & (PositionSnapshot.snapshot_time == subq.c.latest),
-            )
-            .order_by(PositionSnapshot.position_weight.desc())
-        ).all()
-    )
+    positions = positions_as_of(db, account_id, excluded_sync_ids=sample_template_sync_ids(db))
     _apply_layer_overrides(db, positions)
     return positions
 
@@ -529,6 +539,8 @@ def recent_news_for_code(db: Session, code: str, days: int = 3, limit: int = 12)
 
 def delete_local_data(db: Session) -> None:
     for model in (
+        ReturnObservation,
+        HoldingObservationBatch,
         Alert,
         AIAnalysis,
         AIWorkflowRun,

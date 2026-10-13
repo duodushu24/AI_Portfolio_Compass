@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
+import math
 from io import BytesIO
 import re
+from uuid import uuid4
+from sqlalchemy import select
 from typing import Any, TYPE_CHECKING
 
 from app.models import Account, SyncTask
@@ -23,6 +26,7 @@ class ImportSnapshot:
     watchlist: list[dict[str, Any]] = field(default_factory=list)
     quotes: list[dict[str, Any]] = field(default_factory=list)
     news: list[dict[str, Any]] = field(default_factory=list)
+    holding_scopes: list[dict[str, Any]] = field(default_factory=list)
 
 
 def preview_import(source: str, filename: str, content: bytes, account_id: str = "", base_currency: str = "CNY") -> dict[str, Any]:
@@ -82,10 +86,38 @@ def confirm_import(db: "Session", preview: dict[str, Any]) -> dict[str, Any]:
         news=list(snapshot_payload.get("news", [])),
     )
     _supplement_markets(snapshot, source)
+    from app.services.holding_history import utc_naive
+    completeness = preview.get("holding_completeness", "partial")
+    if completeness not in {"partial", "full"}:
+        raise ValueError("持仓范围必须为完整或局部")
+    for p in snapshot.positions:
+        p["cost_method"] = "average" if preview.get("confirm_average_cost") else "unknown"
+        if any(not math.isfinite(p[key]) or p[key] < 0 for key in ("quantity", "average_cost", "current_price")):
+            raise ValueError("数量、价格和平均成本不能为负")
+    if completeness == "full":
+        if not snapshot.positions:
+            raise ValueError("空仓请使用明确的空仓确认入口；成交导入不清空持仓")
+        ids = {p["account_id"] for p in snapshot.positions}
+        if len(ids) != 1:
+            raise ValueError("完整持仓导入仅允许单个账户，请分别导入")
+        actual_time = preview.get("holding_observed_at")
+        if not actual_time:
+            raise ValueError("完整导入需指定统一的实际持仓时间")
+        at = utc_naive(datetime.fromisoformat(str(actual_time).replace("Z", "+00:00")))
+        market = str(preview.get("holding_market", ""))
+        if market not in {"", "CN", "HK", "US"}:
+            raise ValueError("完整导入的市场范围无效")
+        if market and any(p["market"] != market for p in snapshot.positions):
+            raise ValueError("文件中有不属于所选市场的持仓")
+        for p in snapshot.positions: p["snapshot_time"] = at
+        snapshot.holding_scopes = [{"account_id": next(iter(ids)), "observed_at": at,
+            "completeness": "full", "market": market, "source": source}]
     account_id = snapshot.accounts[0]["account_id"] if snapshot.accounts else ""
     existing = db.get(Account, account_id) if account_id else None
-    sync_id = f"import_{source}_{file_hash[:16]}"
-    task = db.get(SyncTask, sync_id)
+    # Repeating the same confirmation is idempotent; changing the declared scope/time is a new observation.
+    context = f"import:{source}:{file_hash}:{account_id}:{completeness}:{preview.get('holding_market', '')}:{preview.get('holding_observed_at', '')}:{bool(preview.get('confirm_average_cost'))}"
+    task = db.scalar(select(SyncTask).where(SyncTask.idempotency_key == context).order_by(SyncTask.start_time.desc()))
+    sync_id = task.sync_id if task else f"import_{source}_{uuid4().hex}"
     if existing and existing.last_import_hash == file_hash and task and task.status == "成功":
         return {"sync_id": sync_id, "status": "已导入", "inserted_count": 0, "updated_count": 0}
 
@@ -95,7 +127,7 @@ def confirm_import(db: "Session", preview: dict[str, Any]) -> dict[str, Any]:
     task.status = "执行中"
     task.start_time = now
     task.source = source
-    task.idempotency_key = f"import:{source}:{file_hash}"
+    task.idempotency_key = context
     db.add(task)
     db.commit()
 
@@ -111,6 +143,8 @@ def confirm_import(db: "Session", preview: dict[str, Any]) -> dict[str, Any]:
         task.inserted_count = inserted
         task.updated_count = updated
     except Exception as exc:
+        db.rollback()
+        task = db.get(SyncTask, sync_id)
         task.status = "失败"
         task.error_message = str(exc)[:1000]
         mark_source_state(db, source, "unavailable", task.error_message, 0)
@@ -195,7 +229,7 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
             if not row_account:
                 continue
             active_account_id = active_account_id or row_account
-            item_snapshot_time = _parse_datetime_value(row.get("snapshot_time"))
+            item_snapshot_time = _parse_datetime_value(row.get("snapshot_time")) if row.get("snapshot_time") else snapshot_time
             code = str(row.get("code") or "").strip()
             quantity = _float(row.get("quantity"))
             current_price = _float(row.get("current_price"))

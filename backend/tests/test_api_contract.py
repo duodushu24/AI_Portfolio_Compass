@@ -345,7 +345,7 @@ def test_account_position_snapshot_can_be_created_and_edited():
 
             response = client.post(
                 f"/api/data/accounts/{account_id}/positions",
-                json={**payload, "original_code": "CN.TEST", "original_snapshot_time": "2026-07-04T10:00:00", "name": "已编辑持仓", "current_price": 12, "market_value": 1200, "normalized_market_value": 1200},
+                json={**payload, "save_mode": "correction", "original_code": "CN.TEST", "original_snapshot_time": "2026-07-04T10:00:00", "name": "已编辑持仓", "current_price": 12, "market_value": 1200, "normalized_market_value": 1200},
             )
             assert response.status_code == 200
             positions = response.json()["overview"]["positions"]
@@ -386,6 +386,7 @@ def test_account_position_snapshot_accepts_minimal_calculated_payload():
                 json={
                     **payload,
                     "original_code": "US.MIN",
+                    "save_mode": "correction",
                     "original_snapshot_time": "2026-07-04T10:00:00",
                     "code": "US.MIN",
                     "currency": "USD",
@@ -488,7 +489,7 @@ def test_account_deal_can_be_created_edited_and_deleted():
         _cleanup_account(account_id)
 
 
-def test_account_position_edit_matches_timezone_shifted_original_time():
+def test_account_position_correction_requires_exact_original_instant():
     account_id = "__manual_position_timezone_account__"
     try:
         _create_account(account_id)
@@ -523,6 +524,7 @@ def test_account_position_edit_matches_timezone_shifted_original_time():
 
         payload = {
             "original_code": "US.NVDA",
+            "save_mode": "correction",
             "original_snapshot_time": (snapshot_time - timedelta(hours=8)).replace(tzinfo=timezone.utc).isoformat(),
             "code": "US.NVDA",
             "name": "英伟达",
@@ -540,6 +542,9 @@ def test_account_position_edit_matches_timezone_shifted_original_time():
             "snapshot_time": snapshot_time.isoformat(),
         }
         with TestClient(app) as client:
+            response = client.post(f"/api/data/accounts/{account_id}/positions", json=payload)
+            assert response.status_code == 404  # No 12-hour nearest-row guessing.
+            payload["original_snapshot_time"] = snapshot_time.replace(tzinfo=timezone.utc).isoformat()
             response = client.post(f"/api/data/accounts/{account_id}/positions", json=payload)
             assert response.status_code == 200
             positions = response.json()["overview"]["positions"]

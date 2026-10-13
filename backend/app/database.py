@@ -43,6 +43,12 @@ def _ensure_sqlite_columns() -> None:
             conn.execute(text("alter table alerts add column ignored boolean default 0"))
         position_columns = {row[1] for row in conn.execute(text("pragma table_info(position_snapshots)")).fetchall()}
         if position_columns:
+            for column, definition in {
+                "batch_id": "integer", "cost_method": "varchar default 'unknown'",
+                "cost_cny_amount": "numeric(24,8)", "is_void": "boolean default 0",
+            }.items():
+                if column not in position_columns:
+                    conn.execute(text(f"alter table position_snapshots add column {column} {definition}"))
             if "raw_currency" not in position_columns:
                 conn.execute(text("alter table position_snapshots add column raw_currency varchar default ''"))
             if "normalized_currency" not in position_columns:

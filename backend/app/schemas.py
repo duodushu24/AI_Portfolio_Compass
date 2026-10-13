@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Optional
+from typing import Literal
+from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -40,6 +42,10 @@ class LayerOverrideRequest(BaseModel):
 
 
 class PositionSnapshotSaveRequest(BaseModel):
+    model_config = {"allow_inf_nan": False}
+    save_mode: Literal["new", "correction"] = "new"
+    cost_method: Literal["average", "unknown"] = "unknown"
+    cost_cny_amount: Optional[Decimal] = Field(default=None, gt=0)
     original_code: str = ""
     original_snapshot_time: Optional[datetime] = None
     code: str

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -161,6 +162,37 @@ class PositionSnapshot(Base):
     missing_market_code: Mapped[bool] = mapped_column(Boolean, default=False)
     snapshot_time: Mapped[datetime] = mapped_column(DateTime, index=True)
     sync_id: Mapped[str] = mapped_column(String, index=True)
+    batch_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    cost_method: Mapped[str] = mapped_column(String, default="unknown")
+    cost_cny_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    is_void: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class HoldingObservationBatch(Base):
+    __tablename__ = "holding_observation_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[str] = mapped_column(String, index=True)
+    market: Mapped[str] = mapped_column(String, default="")
+    completeness: Mapped[str] = mapped_column(String, default="partial")
+    observed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    source: Mapped[str] = mapped_column(String, default="manual")
+    sync_id: Mapped[str] = mapped_column(String, default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ReturnObservation(Base):
+    __tablename__ = "return_observations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    account_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    currency: Mapped[str] = mapped_column(String, default="CNY")
+    note: Mapped[str] = mapped_column(Text, default="")
+    # Decimal inputs are encoded as strings; prices are never re-fetched on replay.
+    inputs: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class ExchangeRate(Base):

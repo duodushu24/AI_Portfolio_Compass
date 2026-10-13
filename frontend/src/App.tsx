@@ -4,6 +4,7 @@ import { api, AccountSummary, AIAnalysis, AIWorkflowRun, Dashboard, DecisionCard
 import { ProShell } from "./layout/ProShell";
 import { PageContainer } from "./components/pro";
 import { DiaryLeaveGuard, ReviewWorkspace } from "./features/DiaryPage";
+import { ReturnHistoryPanel } from "./features/ReturnHistoryPanel";
 import {
   AccountDataPage,
   AdvancedSettingsPage,
@@ -272,7 +273,7 @@ function App() {
 
   const content = useMemo(() => {
     if (active === "首页") return <Home dashboard={scopedDashboard} positions={scopedPositions} tradeReviews={scopedTradeReviews} workflowRuns={workflowRuns} accounts={accounts} selectedAccount={selectedAccount} maskAssets={maskAssets} activeCurrency={activeCurrency} displayRate={displayRate} emptySystem={emptySystem} health={health} onFutuRefresh={async () => { await loadAll(); }} onFutuSync={refresh} onGenerateDiagnosis={() => { setProfilePageIntent({ kind: "generate", requestId: Date.now() }); setActive("组合诊断"); }} onOpenDiagnosisReport={(runId) => { setProfilePageIntent({ kind: "open", runId, requestId: Date.now() }); setActive("组合诊断"); }} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("首页"); setActive("标的详情"); }} />;
-    if (active === "持仓") return <Positions positions={scopedPositions} layer={layer} setLayer={setLayer} accounts={accounts} selectedAccount={selectedAccount} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("持仓"); setActive("标的详情"); }} />;
+    if (active === "持仓") return <div className="stack"><ReturnHistoryPanel key={workspace} selectedAccount={selectedAccount} accounts={accounts} maskAssets={maskAssets} onChanged={loadAll} /><Positions positions={scopedPositions} layer={layer} setLayer={setLayer} accounts={accounts} selectedAccount={selectedAccount} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("持仓"); setActive("标的详情"); }} /></div>;
     if (active === "复盘") return <ReviewWorkspace key={workspace} registerLeaveGuard={registerDiaryLeaveGuard} canLeaveCurrent={canLeaveCurrent}><ReviewPage review={review} tradeReviews={scopedTradeReviews} selectedAccount={selectedAccount} accounts={accounts} refreshingMarketData={refreshingTradeMarketData} onRefreshMarketData={refreshTradeReviewMarketData} onSaveIntent={async (reviewId, note, tags, plan) => { await api.updateTradeReviewIntent(reviewId, note, tags, plan); await loadAll(); }} /></ReviewWorkspace>;
     if (active === "组合诊断") return <ProfilePage profile={profile} positions={scopedPositions} selectedAccount={selectedAccount} accounts={accounts} health={health} setNotice={setNotice} requestConfirm={requestConfirm} homeIntent={profilePageIntent} onHomeIntentHandled={() => setProfilePageIntent(null)} onWorkflowRunsChanged={setWorkflowRuns} />;
     if (active === "标的详情") return <Detail detail={detail} selectedAccount={selectedAccount} onSaveLayer={saveLayer} onGenerateAi={generateAiAnalysis} generatingAi={generatingAi} setDetail={setDetail} setNotice={setNotice} />;

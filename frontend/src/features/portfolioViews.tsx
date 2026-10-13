@@ -3085,7 +3085,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
     }
   }
 
-  async function confirmImport() {
+  async function confirmImport(options: Partial<ImportPreview> = {}) {
     if (!preview) return;
     if (preview.errors?.length) {
       setNotice("预览存在错误，不能确认导入");
@@ -3094,7 +3094,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
     setImporting(true);
     setNotice("正在写入账户数据");
     try {
-      const result = await api.importConfirm(preview.source_name, preview);
+      const result = await api.importConfirm(preview.source_name, { ...preview, ...options });
       setNotice(`${result.status}：新增 ${result.inserted_count}，更新 ${result.updated_count}`);
       setPreview(null);
       await onImported();
@@ -3161,8 +3161,8 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
 
   async function deletePosition(position: Position) {
     const confirmed = await requestConfirm({
-      title: "删除持仓",
-      body: `确认删除持仓「${position.name || position.code}」？`,
+      title: "作废错误持仓记录",
+      body: `确认作废「${position.name || position.code}」这条错误记录？更早的记录不会自动恢复为持仓。卖出或清仓请记录新状态。`,
       confirmText: "删除",
       cancelText: "取消",
       tone: "danger",
@@ -3465,7 +3465,7 @@ export function DataDetailTabs({
   onPullAccountData: (dataType: string) => Promise<void>;
   pullingDataType: string | null;
   preview: ImportPreview | null;
-  onConfirmImport: () => Promise<void>;
+  onConfirmImport: (options?: Partial<ImportPreview>) => Promise<void>;
   onSelectAccount: (accountId: string) => void;
   onAddPosition: () => void;
   onEditPosition: (position: Position) => void;
@@ -4068,6 +4068,10 @@ export function AccountPositionsTable({ positions, onEdit, onDelete }: { positio
 
 export function PositionSnapshotModal({ account, position, onClose, onSaved, setNotice }: { account: AccountSummary; position: Position | null; onClose: () => void; onSaved: (overview: AccountDataOverview) => Promise<void>; setNotice: (notice: string) => void }) {
   const [form, setForm] = useState(() => position ? positionToForm(position, account) : emptyPositionForm(account));
+  const [saveMode, setSaveMode] = useState<"new" | "correction">("new");
+  const [costConfirmed, setCostConfirmed] = useState(position?.cost_method === "average");
+  const [cnyCost, setCnyCost] = useState("");
+  useEffect(() => { if (position) setForm((f) => ({ ...f, snapshot_time: toDatetimeLocal() })); }, []);
   const [saving, setSaving] = useState(false);
   const canSave = form.code.trim() && form.snapshot_time && form.quantity.trim() && form.current_price.trim();
   const quantity = numberOrNull(form.quantity) ?? 0;
@@ -4100,7 +4104,10 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
     if (!canSave) return;
     setSaving(true);
     try {
-      const result = await api.saveAccountPosition(account.account_id, positionFormToPayload(form, position));
+      const payload = positionFormToPayload(form, saveMode === "correction" ? position : null);
+      const result = await api.saveAccountPosition(account.account_id, { ...payload,
+        snapshot_time: saveMode === "correction" && position ? position.snapshot_time : new Date(form.snapshot_time).toISOString(),
+        save_mode: saveMode, cost_method: costConfirmed ? "average" : "unknown", cost_cny_amount: cnyCost || null });
       await onSaved(result.overview);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "持仓快照保存失败");
@@ -4114,7 +4121,7 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
       className="position-edit-drawer"
       width={860}
       visible
-      title={position ? "编辑持仓快照" : "新增持仓快照"}
+      title={position ? "维护持仓记录" : "新增持仓记录"}
       footer={(
         <div className="modal-actions">
           <Button onClick={onClose}>取消</Button>
@@ -4125,12 +4132,19 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
     >
       <div className="stack">
         <p className="metadata-note">{account.display_name || account.account_id}</p>
+        {position ? <Select value={saveMode} onChange={(mode: "new" | "correction") => {
+          setSaveMode(mode); setForm((f) => ({ ...f, code: position.code, snapshot_time: toDatetimeLocal(mode === "correction" ? position.snapshot_time : undefined) }));
+          setCnyCost(mode === "correction" ? position.cost_cny_amount ?? "" : "");
+        }} options={[{ value: "new", label: "记录新状态（保留历史）" }, { value: "correction", label: "纠正这条旧记录" }]} /> : null}
+        <p className="metadata-note">清仓请记录数量 0。记录新状态后，请按当时价格保存收益观察点；成交记录分别维护。</p>
         <Form layout="vertical" className="account-form-grid arco-form-grid position-form-grid compact-position-form">
-          <Form.Item label="标的代码" required><Input autoFocus value={form.code} placeholder="例如 US.AAPL / FUND.006479" onChange={updateCode} /></Form.Item>
+          <Form.Item label="标的代码" required><Input disabled={saveMode === "correction"} autoFocus value={form.code} placeholder="例如 US.AAPL / FUND.006479" onChange={updateCode} /></Form.Item>
           <Form.Item label="标的名称"><Input value={form.name} placeholder="可不填，默认使用代码" onChange={(value) => setForm({ ...form, name: value })} /></Form.Item>
           <Form.Item label="数量" required><Input type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} /></Form.Item>
           <Form.Item label="当前价格" required><Input type="number" value={form.current_price} onChange={(value) => setForm({ ...form, current_price: value })} /></Form.Item>
           <Form.Item label="平均成本"><Input type="number" value={form.average_cost} placeholder="可选，用于计算盈亏" onChange={(value) => setForm({ ...form, average_cost: value })} /></Form.Item>
+          <Form.Item label="成本口径"><Checkbox checked={costConfirmed} onChange={setCostConfirmed}>已核对为平均成本</Checkbox></Form.Item>
+          {currency !== "CNY" ? <Form.Item label="剩余持仓人民币成本（可选）"><Input type="number" value={cnyCost} onChange={setCnyCost} placeholder="按取得/期初核对成本填写，非当前汇率折算" /></Form.Item> : null}
         </Form>
 
         <section className="position-auto-preview">
@@ -4142,7 +4156,7 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
             column={2}
             data={[
               { label: "预计市值", value: formatMoney(marketValue, currency) },
-              { label: "预计盈亏", value: profitLossRatio == null ? "成本价为空，保存为 0%" : formatPercent(profitLossRatio) },
+              { label: "预计盈亏", value: profitLossRatio == null || !costConfirmed ? "平均成本待核对" : formatPercent(profitLossRatio) },
               { label: "账户币种", value: normalizedCurrency },
               { label: "市场", value: marketName(form.market || inferredMarket) },
               { label: "折算市值", value: exchangeRate ? formatMoney(normalizedMarketValue, normalizedCurrency) : "未填汇率时按原币市值" },
@@ -4167,7 +4181,7 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
             <Form.Item label="折算币种"><Input value={form.normalized_currency} onChange={(value) => setForm({ ...form, normalized_currency: value.toUpperCase() })} /></Form.Item>
             <Form.Item label="汇率"><Input type="number" value={form.exchange_rate_to_base} placeholder="可选，原币 -> 折算币种" onChange={(value) => setForm({ ...form, exchange_rate_to_base: value })} /></Form.Item>
             <Form.Item label="仓位类型"><StyledSelect value={form.position_layer} ariaLabel="选择仓位类型" options={layers.filter((item) => item !== "全部").map((item) => ({ value: item, label: item }))} onChange={(value) => setForm({ ...form, position_layer: value })} /></Form.Item>
-            <Form.Item label="快照时间" required><Input type="datetime-local" value={form.snapshot_time} onChange={(value) => setForm({ ...form, snapshot_time: value })} /></Form.Item>
+            <Form.Item label="实际持仓时间" required><Input disabled={saveMode === "correction"} type="datetime-local" value={form.snapshot_time} onChange={(value) => setForm({ ...form, snapshot_time: value })} /></Form.Item>
           </Form>
         </details>
       </div>
@@ -4350,7 +4364,11 @@ export function AccountDealsTable({ deals, onEdit, onDelete }: { deals: AccountD
   );
 }
 
-export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview: ImportPreview; importing: boolean; onConfirm: () => void }) {
+export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview: ImportPreview; importing: boolean; onConfirm: (options?: Partial<ImportPreview>) => void }) {
+  const [completeness, setCompleteness] = useState<"partial" | "full">("partial");
+  const [confirmedCost, setConfirmedCost] = useState(false);
+  const [marketScope, setMarketScope] = useState("");
+  const [holdingTime, setHoldingTime] = useState(() => toDatetimeLocal(preview.positions[0]?.snapshot_time));
   const importPreviewTable = useResizableTableColumns({
     name: 170,
     code: 140,
@@ -4391,6 +4409,15 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
       </div>
       {preview.errors?.length ? <Checklist title="导入错误" items={preview.errors} emptyText="无" /> : null}
       {preview.warnings?.length ? <Checklist title="导入提示" items={preview.warnings} emptyText="无" /> : null}
+      {preview.positions.length ? <div className="stack">
+        <Select value={completeness} onChange={setCompleteness} options={[{ value: "partial", label: "局部更新：仅更新文件中的标的" }, { value: "full", label: "完整持仓：所选范围内遗漏标的退出持仓" }]} />
+        {completeness === "full" ? <>
+          <Select value={marketScope} onChange={setMarketScope} options={[{ value: "", label: "整个账户" }, { value: "CN", label: "仅 A 股/境内基金" }, { value: "HK", label: "仅港股" }, { value: "US", label: "仅美股" }]} />
+          <label>实际持仓时间 <Input type="datetime-local" value={holdingTime} onChange={setHoldingTime} /></label>
+          <p>完整更新会使所选范围内未列出的标的退出当前持仓，旧记录仍可查阅。</p>
+        </> : null}
+        <Checkbox checked={confirmedCost} onChange={setConfirmedCost}>已核对文件中的成本为平均成本</Checkbox>
+      </div> : null}
       {preview.positions.length ? (
         <Table
           className="arco-data-table pro-table import-preview-table"
@@ -4453,7 +4480,10 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
           ]}
         />
       ) : null}
-      <Button type="primary" onClick={onConfirm} disabled={importing || !preview.can_confirm || !!preview.errors?.length} loading={importing}>确认导入</Button>
+      <Button type="primary" onClick={() => onConfirm({ holding_completeness: completeness,
+        confirm_average_cost: confirmedCost, holding_market: marketScope,
+        holding_observed_at: completeness === "full" && holdingTime ? new Date(holdingTime).toISOString() : undefined })}
+        disabled={importing || !preview.can_confirm || !!preview.errors?.length || (completeness === "full" && !holdingTime)} loading={importing}>确认导入</Button>
     </div>
   );
 }

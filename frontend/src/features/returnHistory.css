@@ -1,0 +1,18 @@
+.return-history-panel { padding: 20px; border: 1px solid var(--color-border-2); border-radius: 12px; background: var(--color-bg-2); }
+.return-toolbar, .return-actions, .return-filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.return-toolbar { justify-content: space-between; }
+.return-toolbar h3 { margin: 0 0 6px; }
+.return-filters > .arco-select { width: 200px; }
+.return-filters label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.return-filters label .arco-input-wrapper { width: 190px; }
+.return-chart { display: block; width: 100%; min-height: 200px; max-height: 340px; }
+.return-chart text { fill: var(--color-text-3); font-size: 12px; }
+.return-grid { stroke: var(--color-border-2); stroke-width: 1; }
+.return-chart [role="button"] { cursor: pointer; }
+.return-chart [role="button"]:focus { outline: 2px solid #ff7d00; }
+.return-chart-wrap { overflow-x: auto; }
+.return-record-row { padding: 18px; border: 1px solid var(--color-border-2); border-radius: 8px; }
+.return-inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 14px 0; }
+.return-inputs label { display: flex; flex-direction: column; gap: 6px; }
+.return-event-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
+@media (max-width: 700px) { .return-inputs { grid-template-columns: 1fr; } .return-history-panel { padding: 12px; } }

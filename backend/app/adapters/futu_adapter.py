@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -23,6 +23,7 @@ class FutuSnapshot:
     quotes: list[dict[str, Any]]
     news: list[dict[str, Any]]
     news_error: str = ""
+    holding_scopes: list[dict[str, Any]] = field(default_factory=list)
 
 
 class FutuReadOnlyAdapter:
@@ -62,6 +63,7 @@ class FutuReadOnlyAdapter:
         account_snapshots: list[dict[str, Any]] = []
         positions: list[dict[str, Any]] = []
         deals: list[dict[str, Any]] = []
+        holding_scopes = []
 
         for account in accounts:
             acc_id = account["account_id"]
@@ -69,6 +71,9 @@ class FutuReadOnlyAdapter:
             portfolio = self._fetch_portfolio(futu, account, market)
             account_snapshots.extend(portfolio["account_snapshots"])
             positions.extend(portfolio["positions"])
+            holding_scopes.append({"account_id": acc_id, "market": normalize_market(market),
+                "observed_at": portfolio["account_snapshots"][0]["snapshot_time"],
+                "completeness": "full", "source": "futu"})
             deals.extend(self._fetch_deals(futu, acc_id, market))
 
         codes = [item["code"] for item in positions]
@@ -82,6 +87,7 @@ class FutuReadOnlyAdapter:
             quotes=self._fetch_quotes(futu, codes, now),
             news=news,
             news_error=news_error,
+            holding_scopes=holding_scopes,
         )
 
     def fetch_quote_summaries(self, codes: list[str]) -> list[dict[str, Any]]:
@@ -250,6 +256,7 @@ class FutuReadOnlyAdapter:
                         "asset_type": _infer_asset_type(code, str(row.get("stock_name", ""))),
                         "quantity": _float(row.get("qty")),
                         "average_cost": _float(row.get("average_cost") or row.get("cost_price")),
+                        "cost_method": "average" if row.get("average_cost") is not None else "unknown",
                         "current_price": _float(row.get("nominal_price") or row.get("current_price")),
                         "raw_market_value": raw_mv,
                         "raw_currency": raw_currency,
