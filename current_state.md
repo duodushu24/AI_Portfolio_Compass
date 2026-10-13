@@ -1,7 +1,7 @@
 ---
 schema: project-memory/v1
 kind: index
-updated: "2026-10-09"
+updated: "2026-10-13"
 ---
 
 # 当前状态 — AI Portfolio Compass
@@ -19,11 +19,11 @@ updated: "2026-10-09"
 
 ## 当前焦点与范围
 
-P-001 的原文保存、分析讨论、恢复回看、标签及总结确认已有对应实施与直接验证。2026-10-09 按用户审核的精炼方案完成 C-006：四份提示词结构化重写并迁至 `backend/app/prompts/diary/`，共同身份压缩、配置研究方法与任务规范分层，迁移加载和关键讨论确认回归 2 passed。**实际模型的分析、讨论与凝练效果及完整日记验收仍待试用，P-001 保持 active；P-002 等其验收后再推进。**
+2026-10-13 用户实际使用后反馈日记功能目前没问题，[P-001](issues/P-001-personal-records.md) 本轮验收结束并关闭，既有实施和验证记录保留；本次文档维护未重新运行日记业务测试。
 
-当前日记范围、关键决定及关闭清单以 [P-001](issues/P-001-personal-records.md) 为入口；修改或验证具体行为时按需读其中的详细设计和 C 链接。旧 `docs/personal-investment-agent-roadmap.md` 仅供历史追溯，不作启动或实施前置，不扩大当前范围。
+当前焦点为 [P-005：跨账户组合收益曲线与持仓历史](issues/P-005-portfolio-return-history.md)。用户已明确只使用平均成本；自由时点记录、持仓/累计收益口径、调仓标记及行情候选已整理为 [S-001](issues/solutions/P-005/S-001-average-cost-return-curve.md)，等待审核，尚未实施。优先读取 P 的范围与完成条件，审核或实施时再展开 S。
 
-局部提示词调整及迁移见 P-001 S-004 与 C-006，不新增独立方案文件；历史设计只修复失效链接，原文、讨论保存和 Agent 工作流不变。
+P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围与完成条件尚未确认；本次收益曲线建档不启动 Agent 工作流。旧 `docs/personal-investment-agent-roadmap.md` 仅供历史追溯，不作启动或实施前置，也不扩大当前范围。
 
 ## 问题索引
 
@@ -32,8 +32,8 @@ P-001 的原文保存、分析讨论、恢复回看、标签及总结确认已�
 <!-- project-memory:open:start -->
 | ID | 标题 | 状态 | 下一步 / 恢复条件 |
 |---|---|---|---|
-| [P-001](issues/P-001-personal-records.md) | 投资日记写入、提炼与规范保存 | active | 用户试用 C-006 的结构化提示词与分析、讨论、总结效果，继续验收日记功能 |
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
+| [P-005](issues/P-005-portfolio-return-history.md) | 跨账户组合收益曲线与持仓历史 | active | 用户审核平均成本收益曲线方案、实施分期与收益口径，确认后开始开发 |
 <!-- project-memory:open:end -->
 
 ## 功能总览与维护
