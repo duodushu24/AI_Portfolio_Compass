@@ -845,7 +845,7 @@ def _target_allocation(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _latest_deals(db: Session, account_id: str) -> list[Deal]:
-    stmt = select(Deal).order_by(Deal.deal_time.desc().nullslast()).limit(100)
+    stmt = select(Deal).where(Deal.is_void.is_(False)).order_by(Deal.deal_time.desc().nullslast()).limit(100)
     if account_id != "all":
         stmt = stmt.where(Deal.account_id == account_id)
     return list(db.scalars(stmt).all())
@@ -858,6 +858,8 @@ def _latest_quotes(db: Session, codes: list[str]) -> dict[str, QuoteSummary]:
     result = {}
     for row in rows:
         result.setdefault(row.code, row)
+    from app.services.portfolio.service import projection_quotes
+    result.update(projection_quotes(db, codes))
     return result
 
 

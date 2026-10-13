@@ -133,7 +133,7 @@ export type Position = {
   layer_reason: string;
   missing_market_code: boolean;
   account_count?: number;
-  account_positions?: Array<{ account_id: string; market_value: number; currency: string; quantity: number; weight: number }>;
+  account_positions?: Array<Partial<Position> & { account_id: string; market_value: number; currency: string; quantity: number; weight: number }>;
   snapshot_time: string;
 };
 
@@ -162,6 +162,7 @@ export type PositionSnapshotPayload = {
 };
 
 export type AccountSummary = {
+  ledger_enrolled?: boolean;
   account_id: string;
   source_name: string;
   broker_provider?: string;
@@ -249,6 +250,8 @@ export type DealPayload = {
 };
 
 export type AccountDataOverview = {
+  ledger_enrolled?: boolean;
+  reconciliation?: Array<{ code: string; source_quantity: string; ledger_quantity: string }>;
   account: AccountSummary;
   asset_snapshot: {
     account_id: string;
@@ -589,7 +592,7 @@ function apiBase() {
   return currentWorkspace() === "demo" ? DEMO_API_BASE : FORMAL_API_BASE;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const isFormData = options?.body instanceof FormData;
   const base = apiBase();
   let response: Response;

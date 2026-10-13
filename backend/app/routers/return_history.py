@@ -46,6 +46,9 @@ def draft(account_id: str = "all", observed_at: datetime = Query(...), currency:
 
 def save(db: Session, request: ObservationInput, row: ReturnObservation | None = None):
     accounts = sorted(set(request.account_ids))
+    from app.services.portfolio.service import enrolled
+    if any(enrolled(db, a) for a in accounts):
+        raise HTTPException(409, "已建档账户请使用更新市值；系统自动保存完整账户收益")
     if any(not db.get(Account, a) for a in accounts): raise HTTPException(400, "账户不存在")
     at = utc_naive(request.observed_at)
     current = {(p.account_id, p.code): p for p in service.holdings(db, accounts, at)}

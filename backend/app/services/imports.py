@@ -300,6 +300,8 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
                         "fee": _optional_float(row.get("fee")),
                         "commission": _optional_float(row.get("commission")),
                         "tax": _optional_float(row.get("tax")),
+                        "asset_type": str(row.get("asset_type") or "stock"),
+                        "unit": str(row.get("unit") or ("fund_unit" if row.get("asset_type") == "fund" else "share")),
                         "raw_note": str(row.get("raw_note") or ""),
                     },
                 }

@@ -226,6 +226,31 @@ class Deal(Base):
     market: Mapped[str] = mapped_column(String, default="")
     account_id: Mapped[str] = mapped_column(String, index=True)
     raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Canonical decimal strings and metadata for the enrolled account ledger.
+    ledger_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_void: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class PortfolioOpening(Base):
+    __tablename__ = "portfolio_openings"
+
+    account_id: Mapped[str] = mapped_column(String, primary_key=True)
+    effective_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    included_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    excluded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class PortfolioEvent(Base):
+    __tablename__ = "portfolio_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String, index=True)
+    effective_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_void: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class WatchlistItem(Base):

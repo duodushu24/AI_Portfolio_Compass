@@ -42,6 +42,10 @@ def _ensure_sqlite_columns() -> None:
         if alert_columns and "ignored" not in alert_columns:
             conn.execute(text("alter table alerts add column ignored boolean default 0"))
         position_columns = {row[1] for row in conn.execute(text("pragma table_info(position_snapshots)")).fetchall()}
+        deal_columns = {row[1] for row in conn.execute(text("pragma table_info(deals)")).fetchall()}
+        for column, definition in {"ledger_data": "json default '{}'", "is_void": "boolean default 0"}.items():
+            if deal_columns and column not in deal_columns:
+                conn.execute(text(f"alter table deals add column {column} {definition}"))
         if position_columns:
             for column, definition in {
                 "batch_id": "integer", "cost_method": "varchar default 'unknown'",

@@ -21,6 +21,9 @@ from app.database import engine, get_db, init_db, SessionLocal
 from app.demo_data import ensure_demo_data
 from app.models import AIAnalysis, Account, AccountSnapshot, AIWorkflowRun, Alert, DataSourceState, Deal, DecisionCard, KlineSnapshot, NewsItem, PositionLayerOverride, PositionSnapshot, QuoteSummary, TradeReview, UserAction
 from app.schemas import DealSaveRequest, DeleteLocalDataRequest, LayerOverrideRequest, PositionSnapshotSaveRequest
+from app.models import PortfolioOpening, PortfolioEvent
+from app.services.portfolio import service as portfolio_service
+from app.routers.portfolio import router as portfolio_router
 from app.services.sync import (
     delete_local_data,
     latest_account_snapshots,
@@ -87,6 +90,7 @@ app = FastAPI(title="AI Portfolio Compass", version="0.1.0")
 app.include_router(diary_router)
 app.include_router(diary_analysis_router)
 app.include_router(return_router)
+app.include_router(portfolio_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -358,6 +362,10 @@ def delete_account(account_id: str, confirm_with_data: bool = Query(False), db: 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     data_counts = _account_data_counts(db, account_id)
+    data_counts["ledger_opening"] = int(portfolio_service.enrolled(db, account_id))
+    # Linked transfers are retained with their counterpart; use scope exit instead.
+    if portfolio_service.enrolled(db, account_id) and any(e.account_id == account_id or e.data.get("to_account_id") == account_id for e in db.scalars(select(PortfolioEvent))):
+        raise HTTPException(409, "账户有关联账目，请在期初资料设置移出组合日期；保留历史，不删除账户")
     has_data = any(data_counts.values())
     if has_data and not confirm_with_data:
         raise HTTPException(status_code=409, detail={"message": "账户已有数据，删除前需要二次确认", "data_counts": data_counts})
@@ -367,6 +375,7 @@ def delete_account(account_id: str, confirm_with_data: bool = Query(False), db: 
         db.execute(delete(Deal).where(Deal.account_id == account_id))
         db.execute(delete(TradeReview).where(TradeReview.account_id == account_id))
     db.execute(delete(HoldingObservationBatch).where(HoldingObservationBatch.account_id == account_id))
+    db.execute(delete(PortfolioOpening).where(PortfolioOpening.account_id == account_id))
     for observation in db.scalars(select(ReturnObservation)).all():
         if account_id in observation.account_ids:
             db.delete(observation)
@@ -402,8 +411,8 @@ def import_excel_template(context: str = Query("position")) -> StreamingResponse
     if context == "deal":
         sheets = [(
             "成交记录",
-            ["成交号*", "订单号", "标的代码*", "市场", "方向", "价格*", "数量*", "成交时间"],
-            [None, None, None, None, None, None, None, None],
+            ["成交号*", "订单号", "标的代码*", "市场", "方向", "价格*", "数量*", "成交时间", "currency", "fee", "asset_type", "unit"],
+            [None, None, None, None, None, None, None, None, None, None, None, None],
         )]
     else:
         sheets = [(
@@ -581,14 +590,15 @@ def dashboard(account_id: str = Query("all"), db: Session = Depends(get_db)) -> 
     position_exposures = _aggregate_positions(positions, total_assets, base_currency, display_rates)
     account_rows = {item.account_id: item for item in db.query(Account).all()}
     return {
+        "performance": portfolio_service.overview(db, account_id),
         "sync": sync_status(db),
         "portfolio": {
             "account_id": account_id,
             "account_count": len(account_snapshots),
             "position_count": len(positions),
-            "total_assets": total_assets,
-            "total_position_value": total_value,
-            "cash": cash,
+            "total_assets": None if any(s.sync_id == "portfolio_ledger" and s.raw_currency_values.get("ledger_total") is None for s in account_snapshots) else total_assets,
+            "total_position_value": None if any(s.sync_id == "portfolio_ledger" and s.raw_currency_values.get("ledger_market") is None for s in account_snapshots) else total_value,
+            "cash": None if any(s.sync_id == "portfolio_ledger" and s.raw_currency_values.get("ledger_cash") is None for s in account_snapshots) else cash,
             "base_currency": base_currency,
             "display_currencies": list(display_rates.keys()),
             "display_rates": display_rates,
@@ -858,11 +868,14 @@ def account_data_overview(account_id: str, db: Session = Depends(get_db)) -> dic
         db.scalars(
             select(Deal)
             .where(Deal.account_id == account_id)
+            .where(Deal.is_void.is_(False))
             .order_by(Deal.deal_time.desc().nullslast(), Deal.id.desc())
             .limit(200)
         ).all()
     )
     return {
+        "ledger_enrolled": portfolio_service.enrolled(db, account_id),
+        "reconciliation": portfolio_service.reconcile(db, account_id) if portfolio_service.enrolled(db, account_id) else [],
         "account": _account_to_dict(account, snapshot),
         "asset_snapshot": _asset_snapshot_to_dict(snapshot) if snapshot else None,
         "positions": [_position_to_dict(item) for item in positions],
@@ -962,6 +975,8 @@ def pull_account_data_source(account_id: str, payload: dict = Body(default_facto
 
 @app.post("/api/data/accounts/{account_id}/positions")
 def save_account_position(account_id: str, request: PositionSnapshotSaveRequest, db: Session = Depends(get_db)) -> dict:
+    if portfolio_service.enrolled(db, account_id):
+        raise HTTPException(409, "已建档账户由买卖维护数量和成本；请记录买卖、更新市值或纠正期初资料")
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -1044,6 +1059,8 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
 
 @app.delete("/api/data/accounts/{account_id}/positions")
 def delete_account_position(account_id: str, code: str = Query(...), snapshot_time: datetime = Query(...), db: Session = Depends(get_db)) -> dict:
+    if portfolio_service.enrolled(db, account_id):
+        raise HTTPException(409, "作废持仓不能代表清仓；请记录卖出或纠正原始账目")
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -1067,6 +1084,14 @@ def delete_account_position(account_id: str, code: str = Query(...), snapshot_ti
 
 @app.post("/api/data/accounts/{account_id}/deals")
 def save_account_deal(account_id: str, request: DealSaveRequest, db: Session = Depends(get_db)) -> dict:
+    if portfolio_service.enrolled(db, account_id):
+        original = db.scalar(select(Deal).where(Deal.account_id == account_id, Deal.deal_id == (request.original_deal_id or request.deal_id)))
+        try:
+            portfolio_service.save_trade(db, {**request.model_dump(), "account_id": account_id, "effective_at": request.deal_time,
+                "currency": request.currency or (db.get(Account, account_id).base_currency), "source": "手工成交"}, original.id if original else None)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"status": "saved", "overview": account_data_overview(account_id, db)}
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -1115,6 +1140,12 @@ def delete_account_deal(account_id: str, deal_id: str, db: Session = Depends(get
     deal = db.scalar(select(Deal).where(Deal.account_id == account_id, Deal.deal_id == deal_id))
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
+    if deal.ledger_data:
+        try:
+            portfolio_service.void(db, "trade", deal.id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"status": "deleted", "overview": account_data_overview(account_id, db)}
     db.delete(deal)
     db.commit()
     return {"status": "deleted", "overview": account_data_overview(account_id, db)}
@@ -1146,6 +1177,8 @@ def position_kline(
     db: Session = Depends(get_db),
 ) -> dict:
     items = [item for item in latest_positions(db, account_id) if item.code == code]
+    if not items:
+        items = [item for item in portfolio_service.projection_positions(db, account_id, include_closed=True) if item.code == code]
     if not items:
         raise HTTPException(status_code=404, detail="Position not found")
     if items[0].missing_market_code:
@@ -1184,6 +1217,8 @@ def position_kline(
 def position_detail(code: str, account_id: str = Query("all"), db: Session = Depends(get_db)) -> dict:
     items = [item for item in latest_positions(db, account_id) if item.code == code]
     if not items:
+        items = [item for item in portfolio_service.projection_positions(db, account_id, include_closed=True) if item.code == code]
+    if not items:
         raise HTTPException(status_code=404, detail="Position not found")
     if account_id == "all":
         account_snapshots = latest_account_snapshots(db, account_id)
@@ -1200,6 +1235,7 @@ def position_detail(code: str, account_id: str = Query("all"), db: Session = Dep
     news = recent_news_for_code(db, code, days=3, limit=12)
     _record_user_action(db, code, "查看标的详情", cards[0].card_id if cards else None)
     return {
+        "performance": portfolio_service.overview(db, account_id, code=code),
         "position": _position_to_dict(position),
         "account_positions": [_position_to_dict(item) for item in items],
         "cards": [_card_to_dict(card, position) for card in cards],
@@ -1250,7 +1286,8 @@ def update_layer(code: str, request: LayerOverrideRequest, db: Session = Depends
         item.layer_source = "user"
         item.layer_confidence = "高"
         item.layer_reason = request.reason or "用户手动修正优先"
-        db.add(item)
+        if item.sync_id != "portfolio_ledger":
+            db.add(item)
     db.commit()
     return {
         "code": code,
@@ -1441,6 +1478,8 @@ def _as_utc_naive(value: datetime) -> datetime:
 
 
 def _recalculate_account_position_weights(db: Session, account_id: str) -> None:
+    if portfolio_service.enrolled(db, account_id):
+        return
     snapshot = next(iter(latest_account_snapshots(db, account_id)), None)
     latest = latest_positions(db, account_id)
     total_assets = snapshot.total_assets if snapshot else sum(item.normalized_market_value for item in latest)
@@ -1455,23 +1494,24 @@ def _position_to_dict(item) -> dict:
     if isinstance(item, dict):
         return item
     return {
+        "ledger": getattr(item, "ledger_result", None),
         "account_id": item.account_id,
         "code": item.code,
         "name": item.name,
         "market": item.market,
         "asset_type": item.asset_type,
         "quantity": item.quantity,
-        "current_price": item.current_price,
-        "average_cost": item.average_cost,
+        "current_price": item.current_price if not hasattr(item, "ledger_result") else float(item.ledger_result["price"]) if item.ledger_result["price"] is not None else None,
+        "average_cost": item.average_cost if not hasattr(item, "ledger_result") else float(item.ledger_result["average_cost"]) if item.ledger_result["average_cost"] is not None else None,
         "cost_method": item.cost_method,
-        "cost_cny_amount": str(item.cost_cny_amount) if item.cost_cny_amount else None,
-        "raw_market_value": item.raw_market_value,
+        "cost_cny_amount": str(item.cost_cny_amount) if item.cost_cny_amount is not None else None,
+        "raw_market_value": item.raw_market_value if not hasattr(item, "ledger_result") or item.ledger_result["market_value"] is not None else None,
         "raw_currency": item.raw_currency,
-        "normalized_market_value": item.normalized_market_value,
+        "normalized_market_value": item.normalized_market_value if not hasattr(item, "ledger_result") or item.ledger_result["market_value_cny"] is not None else None,
         "normalized_currency": item.normalized_currency,
         "exchange_rate_to_base": item.exchange_rate_to_base,
         "position_weight": item.position_weight,
-        "profit_loss_ratio": item.profit_loss_ratio,
+        "profit_loss_ratio": item.profit_loss_ratio if not hasattr(item, "ledger_result") else float(item.ledger_result["holding_return"]) if item.ledger_result["holding_return"] is not None else None,
         "position_layer": item.position_layer,
         "layer_source": item.layer_source,
         "layer_confidence": item.layer_confidence,
@@ -1499,8 +1539,9 @@ def _aggregate_positions(
         cost_basis = total_cost / total_quantity if total_quantity else first.average_cost
         account_positions = [
             {
+                **_position_to_dict(item),
                 "account_id": item.account_id,
-                "market_value": _position_market_value_base(item, base_currency, display_rates),
+                "market_value": _position_market_value_base(item, base_currency, display_rates) if not hasattr(item, "ledger_result") or item.ledger_result["market_value_cny"] is not None else None,
                 "currency": base_currency or item.normalized_currency,
                 "quantity": item.quantity,
                 "weight": item.position_weight,
@@ -1516,15 +1557,16 @@ def _aggregate_positions(
                 "market": first.market,
                 "asset_type": first.asset_type,
                 "quantity": total_quantity,
-                "current_price": first.current_price,
-                "average_cost": cost_basis,
-                "raw_market_value": total_value,
-                "raw_currency": base_currency or first.normalized_currency,
-                "normalized_market_value": total_value,
+                "current_price": first.current_price if not hasattr(first, "ledger_result") or first.ledger_result["price"] is not None else None,
+                "average_cost": cost_basis if all(i.cost_method == "average" for i in group) and total_quantity else None,
+                "cost_method": "average" if all(i.cost_method == "average" for i in group) else "unknown",
+                "raw_market_value": sum(i.raw_market_value for i in group) if len({i.raw_currency for i in group}) == 1 else total_value,
+                "raw_currency": first.raw_currency if len({i.raw_currency for i in group}) == 1 else base_currency,
+                "normalized_market_value": total_value if all(not hasattr(i, "ledger_result") or i.ledger_result["market_value_cny"] is not None for i in group) else None,
                 "normalized_currency": base_currency or first.normalized_currency,
                 "exchange_rate_to_base": first.exchange_rate_to_base,
                 "position_weight": portfolio_weight,
-                "profit_loss_ratio": _weighted_profit_loss(group, base_currency, display_rates),
+                "profit_loss_ratio": _weighted_profit_loss(group, base_currency, display_rates) if total_quantity and all(not hasattr(i, "ledger_result") or i.ledger_result["holding_return"] is not None for i in group) else None,
                 "position_layer": first.position_layer,
                 "layer_source": first.layer_source,
                 "layer_confidence": first.layer_confidence,
@@ -1535,7 +1577,7 @@ def _aggregate_positions(
                 "account_count": len(group),
             }
         )
-    return sorted(aggregated, key=lambda item: item["normalized_market_value"], reverse=True)
+    return sorted(aggregated, key=lambda item: item["normalized_market_value"] or 0, reverse=True)
 
 
 def _position_market_value_base(item, base_currency: str = "", display_rates: dict[str, float] | None = None) -> float:
@@ -1543,11 +1585,12 @@ def _position_market_value_base(item, base_currency: str = "", display_rates: di
 
 
 def _weighted_profit_loss(items, base_currency: str = "", display_rates: dict[str, float] | None = None) -> float:
-    total = sum(abs(_position_market_value_base(item, base_currency, display_rates)) for item in items)
+    costs = [_money_to_base(item.quantity * item.average_cost, item.raw_currency, base_currency or item.raw_currency, display_rates) for item in items]
+    total = sum(costs)
     if not total:
         return 0
     return (
-        sum(item.profit_loss_ratio * abs(_position_market_value_base(item, base_currency, display_rates)) for item in items)
+        sum(item.profit_loss_ratio * cost for item, cost in zip(items, costs))
         / total
     )
 
@@ -1796,6 +1839,8 @@ def _account_to_dict(account, snapshot, display_currency: str = "", display_rate
     market_value = snapshot.market_value if snapshot else getattr(account, "market_value", 0)
     display_total = _money_to_base(total_assets, currency, display_currency, display_rates) if display_currency else total_assets
     return {
+        "ledger_enrolled": bool(snapshot and snapshot.sync_id == "portfolio_ledger"),
+        "valuation_quality": (snapshot.raw_currency_values or {}).get("ledger_quality") if snapshot else None,
         "account_id": snapshot.account_id if snapshot else getattr(account, "account_id", ""),
         "source_name": getattr(account, "source_name", "futu") if account else "unknown",
         "broker_provider": _account_broker_provider(account) if account else "",
@@ -1806,11 +1851,11 @@ def _account_to_dict(account, snapshot, display_currency: str = "", display_rate
         "markets": getattr(account, "markets", []) if account else [],
         "enabled": getattr(account, "enabled", True) if account else True,
         "base_currency": currency,
-        "total_assets": total_assets,
-        "cash": cash,
-        "market_value": market_value,
+        "total_assets": None if snapshot and snapshot.sync_id == "portfolio_ledger" and snapshot.raw_currency_values.get("ledger_total") is None else total_assets,
+        "cash": None if snapshot and snapshot.sync_id == "portfolio_ledger" and snapshot.raw_currency_values.get("ledger_cash") is None else cash,
+        "market_value": None if snapshot and snapshot.sync_id == "portfolio_ledger" and snapshot.raw_currency_values.get("ledger_market") is None else market_value,
         "display_currency": display_currency,
-        "display_total_assets": display_total,
+        "display_total_assets": None if snapshot and snapshot.sync_id == "portfolio_ledger" and snapshot.raw_currency_values.get("ledger_total") is None else display_total,
         "last_sync_time": getattr(account, "last_sync_time", None) if account else None,
         "snapshot_time": snapshot.snapshot_time if snapshot else None,
         "import_modes": _account_import_modes(getattr(account, "import_mode", "") if account else "", _account_broker_provider(account) if account else ""),

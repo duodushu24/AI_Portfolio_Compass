@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode, ThHTMLAttributes } from "react";
 import { Alert, Button, Checkbox, Descriptions, Drawer, Dropdown, Empty as ArcoEmpty, Form, Input, Menu, Modal, Select, Spin, Table, Tabs, Tag, Upload } from "@arco-design/web-react";
 import { api, AccountDataOverview, AccountDeal, AccountSummary, AIAnalysis, AIConfigResponse, AIRuntimeConfig, AIWorkflowRun, Dashboard, DealPayload, DecisionCard, HealthStatus, ImportPreview, InvestorPreference, KLineItem, KLineResponse, NewsItem, Position, PositionSnapshotPayload, Profile, ProviderState, Review, TradeIntentPlan, TradeIntentTags, TradeReview, TradeReviewList, WorkflowArtifact, WorkflowStep } from "../api";
+import { PortfolioWorkbench } from "./portfolio/PortfolioWorkbench";
+import { PortfolioPanel } from "./portfolio/PortfolioPanel";
 
 const layers = ["全部", "核心长期仓", "中期配置仓", "短期交易仓", "期权仓", "遗留观察仓"];
 const intentTagGroups: Array<{ key: keyof TradeIntentTags; title: string; items: string[] }> = [
@@ -303,7 +305,8 @@ export function Home({
   return (
     <div className="stack home-page">
       {emptySystem ? <FutuConnectionCard health={health} onRefresh={onFutuRefresh} onSync={onFutuSync} /> : null}
-      {!dashboard || dashboard.empty ? (
+      {dashboard && dashboard.portfolio.total_assets == null && <Alert type="warning" content="账目缺少价格或汇率；完整资产与收益暂不可用，请到账户与数据补录。" />}
+      {!dashboard || (dashboard.empty && !dashboard.portfolio.account_count) ? (
         <Empty title="暂无持仓数据" body="连接 OpenD 并刷新后，这里会显示组合风险、持仓事项和数据状态。" />
       ) : (
         <>
@@ -2744,7 +2747,7 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
                 <span className="detail-code">{detail.position.code}</span>
               </div>
               <div className="detail-hero-actions">
-                <Tag color={detail.position.profit_loss_ratio >= 0 ? "green" : "red"}>{detail.position.profit_loss_ratio >= 0 ? "盈利" : "亏损"}</Tag>
+                <Tag color={!detail.position.quantity ? "gray" : detail.position.profit_loss_ratio >= 0 ? "green" : "red"}>{!detail.position.quantity ? "已清仓" : detail.position.cost_method === "unknown" ? "成本待确认" : detail.position.profit_loss_ratio >= 0 ? "盈利" : "亏损"}</Tag>
                 <div className="detail-layer-field">
                   <span>仓位类型</span>
                   <Select value={detail.position.position_layer} onChange={(value) => onSaveLayer(String(value))} className="detail-layer-select">
@@ -2755,10 +2758,10 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
             </div>
             <div className="detail-stat-grid">
               <Metric label="当前价" value={formatPrice(detail.position.current_price)} />
-              <Metric label="成本价" value={formatPrice(detail.position.average_cost)} />
+              <Metric label="成本价" value={!detail.position.quantity ? "—" : detail.position.cost_method === "unknown" ? "待确认" : formatPrice(detail.position.average_cost)} />
               <Metric label="账户币种市值" value={formatMoney(detail.position.normalized_market_value, detail.position.normalized_currency)} />
               <Metric label="仓位" value={formatPercent(detail.position.position_weight)} />
-              <Metric label="盈亏" value={formatPercent(detail.position.profit_loss_ratio)} />
+              <Metric label="持仓收益率" value={!detail.position.quantity || detail.position.cost_method === "unknown" ? "—" : formatPercent(detail.position.profit_loss_ratio)} />
             </div>
             <Descriptions
               className="detail-descriptions"
@@ -2773,6 +2776,7 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
             {detail.position.missing_market_code ? <p className="warning">该持仓缺少真实证券代码，当前按简称展示，不自动拉取行情和新闻。</p> : null}
             <p className="reason">{detail.position.layer_reason}</p>
           </section>
+          <PortfolioPanel accountId={selectedAccount} code={detail.position.code} maskAssets={assetMaskEnabled} />
           <KLineChart position={detail.position} accountId={selectedAccount} />
           <section className="panel detail-tabs-panel">
             <Tabs defaultActiveTab="ai">
@@ -3021,7 +3025,8 @@ export function Checklist({ title, items, emptyText = "暂无" }: { title: strin
 }
 
 export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRefresh, loading, showAccountManagementLink = true, onOpenAccounts }: { accounts: AccountSummary[]; onImported: () => Promise<void>; setNotice: (notice: string) => void; requestConfirm: (options: ConfirmOptions) => Promise<boolean>; onRefresh: () => Promise<void>; loading: boolean; showAccountManagementLink?: boolean; onOpenAccounts?: () => void }) {
-  const enabledAccounts = accounts.filter((account) => account.enabled);
+  // Sync enablement does not limit manual bookkeeping or performance membership.
+  const enabledAccounts = accounts;
   const [activeAccountId, setActiveAccountId] = useState(enabledAccounts[0]?.account_id ?? "");
   const [overview, setOverview] = useState<AccountDataOverview | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -3201,7 +3206,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
     return (
       <div className="stack data-console">
         <section className="panel">
-          <Empty title="暂无可用账户" body={showAccountManagementLink ? "先在账户页创建并启用账户，再上传资产、持仓和成交数据。" : "先在上方账户列表创建并启用账户，再上传资产、持仓和成交数据。"} />
+          <Empty title="暂无账户" body="先在账户管理创建账户，再确认期初资料或导入来源记录。" />
           {showAccountManagementLink && onOpenAccounts ? <Button type="primary" onClick={onOpenAccounts}>去创建账户</Button> : null}
         </section>
       </div>
@@ -3214,6 +3219,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
 
   return (
     <div className="data-console stack">
+      <PortfolioWorkbench key={activeAccountId} accountId={activeAccountId} accounts={accounts} onSelectAccount={id => { setActiveAccountId(id); setPreview(null); }} onChanged={async () => { await onImported(); setOverview(await api.accountDataOverview(activeAccountId)); }} />
       <DataDetailTabs
         accounts={enabledAccounts}
         activeAccount={activeAccount}
@@ -3512,6 +3518,7 @@ export function DataDetailTabs({
             <div className="data-detail-action-row">
               <div className="data-detail-meta">更新时间 {overview?.updated_at.position ? formatDate(overview.updated_at.position) : "暂无刷新记录"}</div>
               <DataTableActions
+                readOnly={overview?.ledger_enrolled}
                 isPositionTab={isPositionTab}
                 canImportApi={canImportApi}
                 canImportLocal={canImportLocal}
@@ -3526,7 +3533,7 @@ export function DataDetailTabs({
                 onAdd={onAddPosition}
               />
             </div>
-            <AccountPositionsTable positions={overview?.positions ?? []} onEdit={onEditPosition} onDelete={onDeletePosition} />
+            <AccountPositionsTable positions={overview?.positions ?? []} onEdit={onEditPosition} onDelete={onDeletePosition} readOnly={overview?.ledger_enrolled} />
           </div>
         </Tabs.TabPane>
         <Tabs.TabPane
@@ -3537,6 +3544,7 @@ export function DataDetailTabs({
             <div className="data-detail-action-row">
               <div className="data-detail-meta">更新时间 {overview?.updated_at.deal ? formatDate(overview.updated_at.deal) : "暂无刷新记录"}</div>
               <DataTableActions
+                readOnly={overview?.ledger_enrolled}
                 isPositionTab={isPositionTab}
                 canImportApi={canImportApi}
                 canImportLocal={canImportLocal}
@@ -3551,7 +3559,7 @@ export function DataDetailTabs({
                 onAdd={onAddDeal}
               />
             </div>
-            <AccountDealsTable deals={overview?.deals ?? []} onEdit={onEditDeal} onDelete={onDeleteDeal} />
+            <AccountDealsTable deals={overview?.deals ?? []} onEdit={onEditDeal} onDelete={onDeleteDeal} readOnly={overview?.ledger_enrolled} />
           </div>
         </Tabs.TabPane>
         {apiOnlySources.map((source) => (
@@ -3582,10 +3590,10 @@ export function DataDetailTabs({
   );
 }
 
-export function DataTableActions({ isPositionTab, canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, onAdd }: { isPositionTab: boolean; canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; onAdd: () => void }) {
+export function DataTableActions({ isPositionTab, canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, onAdd, readOnly = false }: { isPositionTab: boolean; canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; onAdd: () => void; readOnly?: boolean }) {
   return (
     <div className="data-table-actions">
-      <Button type="primary" onClick={onAdd}>新增数据</Button>
+      {!readOnly && <Button type="primary" onClick={onAdd}>新增数据</Button>}
       <DataActions
         canImportApi={canImportApi}
         canImportLocal={canImportLocal}
@@ -3969,7 +3977,7 @@ export function positionFormToPayload(form: PositionSnapshotForm, original?: Pos
   };
 }
 
-export function AccountPositionsTable({ positions, onEdit, onDelete }: { positions: Position[]; onEdit: (position: Position) => void; onDelete: (position: Position) => void }) {
+export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = false }: { positions: Position[]; onEdit: (position: Position) => void; onDelete: (position: Position) => void; readOnly?: boolean }) {
   const accountPositionsTable = useResizableTableColumns({
     name: 170,
     code: 140,
@@ -4053,7 +4061,7 @@ export function AccountPositionsTable({ positions, onEdit, onDelete }: { positio
             ...accountPositionsTable.staticColumnProps("actions"),
             align: "center",
             className: "table-operation-column",
-            render: (_value, item: Position) => (
+            render: (_value, item: Position) => readOnly ? <small>由上方账目维护</small> : (
               <div className="row-actions">
                 <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>
                 <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>
@@ -4287,7 +4295,7 @@ export function DealModal({ account, deal, onClose, onSaved, setNotice }: { acco
   );
 }
 
-export function AccountDealsTable({ deals, onEdit, onDelete }: { deals: AccountDeal[]; onEdit: (deal: AccountDeal) => void; onDelete: (deal: AccountDeal) => void }) {
+export function AccountDealsTable({ deals, onEdit, onDelete, readOnly = false }: { deals: AccountDeal[]; onEdit: (deal: AccountDeal) => void; onDelete: (deal: AccountDeal) => void; readOnly?: boolean }) {
   const dealsTable = useResizableTableColumns({
     deal_time: 190,
     code: 150,
@@ -4351,7 +4359,7 @@ export function AccountDealsTable({ deals, onEdit, onDelete }: { deals: AccountD
             ...dealsTable.staticColumnProps("actions"),
             align: "center",
             className: "table-operation-column",
-            render: (_value, item: AccountDeal) => (
+            render: (_value, item: AccountDeal) => readOnly ? <small>账目与历史来源</small> : (
               <div className="row-actions">
                 <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>
                 <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>
@@ -5114,6 +5122,7 @@ export function scopePositions(positions: Position[], selectedAccount: string) {
       if (!accountPosition) return item;
       return {
         ...item,
+        ...accountPosition,
         account_id: selectedAccount,
         quantity: accountPosition.quantity,
         normalized_market_value: accountPosition.market_value,
@@ -5298,12 +5307,14 @@ export function marketName(market: string) {
 }
 
 export function formatMoney(value: number, currency?: string) {
+  if (value == null || !Number.isFinite(value)) return "—";
   const amount = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(value);
   const text = currency ? `${amount} ${currency}` : amount;
   return maskAssetText(text);
 }
 
 export function convertCurrency(value: number, rate: number) {
+  if (value == null) return NaN;
   return value * rate;
 }
 
@@ -5369,6 +5380,7 @@ export function exchangeRateLabel(position: Position) {
 }
 
 export function formatPercent(value: number) {
+  if (value == null || !Number.isFinite(value)) return "—";
   return `${(value * 100).toFixed(1)}%`;
 }
 

@@ -67,6 +67,11 @@ class PositionSnapshotSaveRequest(BaseModel):
 
 
 class DealSaveRequest(BaseModel):
+    model_config = {"allow_inf_nan": False}
+    currency: str = ""
+    fees: Decimal = Field(default=0, ge=0)
+    asset_type: str = "stock"
+    unit: str = ""
     original_deal_id: str = ""
     deal_id: str
     order_id: str = ""

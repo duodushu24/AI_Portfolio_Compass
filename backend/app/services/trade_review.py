@@ -16,7 +16,7 @@ INTENT_TAG_CATEGORIES = ("trend", "market", "fundamental", "emotion")
 
 
 def refresh_trade_reviews(db: Session, fetch_market_data: bool = False) -> None:
-    deals = list(db.scalars(select(Deal).order_by(Deal.deal_time.desc(), Deal.id.desc())).all())
+    deals = list(db.scalars(select(Deal).where(Deal.is_void.is_(False)).order_by(Deal.deal_time.desc(), Deal.id.desc())).all())
     positions = _latest_positions_by_code(db)
     kline_cache: dict[tuple[str, str], float | None] = {}
     for deal in deals:
@@ -113,6 +113,8 @@ def trade_review_payload(
     if account_id and account_id != "all":
         query = query.where(TradeReview.account_id == account_id)
     items = list(db.scalars(query.limit(200)).all())
+    active = {(d.account_id, d.deal_id) for d in db.scalars(select(Deal).where(Deal.is_void.is_(False)))}
+    items = [i for i in items if (i.account_id, i.deal_id) in active]
     return {
         "empty": not items,
         "summary": _summary(items),
@@ -263,6 +265,10 @@ def _daily_kline_price_after(
 
 
 def _latest_price(db: Session, code: str) -> float | None:
+    from app.services.portfolio.service import projection_quotes
+    ledger_quote = projection_quotes(db, [code]).get(code)
+    if ledger_quote:
+        return ledger_quote.current_price
     quote = db.scalar(
         select(QuoteSummary)
         .where(QuoteSummary.code == code)
@@ -308,17 +314,8 @@ def _confidence(one_day_return: float | None, five_day_return: float | None) -> 
 
 
 def _latest_positions_by_code(db: Session) -> dict[str, PositionSnapshot]:
-    subq = (
-        select(PositionSnapshot.code, func.max(PositionSnapshot.snapshot_time).label("latest"))
-        .group_by(PositionSnapshot.code)
-        .subquery()
-    )
-    positions = db.scalars(
-        select(PositionSnapshot).join(
-            subq,
-            (PositionSnapshot.code == subq.c.code) & (PositionSnapshot.snapshot_time == subq.c.latest),
-        )
-    ).all()
+    from app.services.sync import latest_positions
+    positions = latest_positions(db)
     return {item.code: item for item in positions}
 
 

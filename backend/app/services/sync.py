@@ -24,6 +24,8 @@ from app.models import (
     PositionSnapshot,
     HoldingObservationBatch,
     ReturnObservation,
+    PortfolioOpening,
+    PortfolioEvent,
     ProfileVersion,
     QuoteSummary,
     ReviewReport,
@@ -135,8 +137,16 @@ def pull_account_market_data(db: Session, account: Account, data_type: str) -> d
 
 
 def _persist_quote_rows(db: Session, sync_id: str, rows: list[dict]) -> int:
+    from app.services.portfolio.service import ingest_quotes, validate
+    ingest_quotes(db, rows, sync_id)
+    validate(db)
     inserted = 0
     for payload in rows:
+        existing = db.scalar(select(QuoteSummary).where(QuoteSummary.code == payload["code"], QuoteSummary.quote_time == payload["quote_time"]))
+        if existing:
+            if existing.current_price != payload["current_price"]:
+                raise ValueError("同代码、同实际时间已有不同报价，请明确纠正原报价")
+            continue
         db.add(QuoteSummary(sync_id=sync_id, **payload))
         inserted += 1
     return inserted
@@ -309,6 +319,22 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
         if existing:
             updated += 1
             continue
+        from app.services.portfolio import service as portfolio_service
+        from app.services.portfolio.performance import instant
+        opening = db.get(PortfolioOpening, payload["account_id"])
+        if opening and payload.get("deal_time") and instant(payload["deal_time"]) >= opening.effective_at:
+            raw = payload.get("raw_payload", {})
+            if raw.get("currency") not in {"CNY", "HKD", "USD"}:
+                raise ValueError("已建档账户的成交导入必须提供明确币种；请补齐标准模板字段")
+            from app.services.portfolio.ledger import number
+            fees = raw.get("fee")
+            if fees in (None, ""):
+                fees = number(raw.get("commission") or 0) + number(raw.get("tax") or 0)
+            portfolio_service.save_trade(db, {**payload, "effective_at": payload["deal_time"], "currency": raw["currency"],
+                "fees": fees, "asset_type": raw.get("asset_type") or "stock", "unit": raw.get("unit") or "share",
+                "source": sync_id}, commit=False)
+            inserted += 1
+            continue
         db.add(Deal(**payload))
         inserted += 1
 
@@ -326,9 +352,7 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
             db.add(WatchlistItem(**payload))
             inserted += 1
 
-    for payload in snapshot.quotes:
-        db.add(QuoteSummary(sync_id=sync_id, **payload))
-        inserted += 1
+    inserted += _persist_quote_rows(db, sync_id, snapshot.quotes)
 
     for payload in getattr(snapshot, "news", []):
         existing = db.get(NewsItem, payload["news_id"])
@@ -342,6 +366,8 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
             inserted += 1
 
     from app.services.return_history import refresh_observations
+    from app.services.portfolio.service import validate
+    validate(db)
     refresh_observations(db)
     _mark_freshness_states(db, snapshot)
     _create_profile(db)
@@ -357,6 +383,10 @@ def latest_sync(db: Session) -> SyncTask | None:
 
 def latest_positions(db: Session, account_id: Optional[str] = None) -> list[PositionSnapshot]:
     positions = positions_as_of(db, account_id, excluded_sync_ids=sample_template_sync_ids(db))
+    from app.models import PortfolioOpening
+    from app.services.portfolio.service import projection_positions
+    enrolled_ids = set(db.scalars(select(PortfolioOpening.account_id)))
+    positions = [p for p in positions if p.account_id not in enrolled_ids and not (enrolled_ids and account_id in (None, "all"))] + projection_positions(db, account_id)
     _apply_layer_overrides(db, positions)
     return positions
 
@@ -393,7 +423,7 @@ def latest_account_snapshots(db: Session, account_id: Optional[str] = None) -> l
         .group_by(AccountSnapshot.account_id)
         .subquery()
     )
-    return list(
+    rows = list(
         db.scalars(
             select(AccountSnapshot).join(
                 subq,
@@ -402,6 +432,10 @@ def latest_account_snapshots(db: Session, account_id: Optional[str] = None) -> l
             )
         ).all()
     )
+    from app.models import PortfolioOpening
+    from app.services.portfolio.service import projection_accounts
+    enrolled_ids = set(db.scalars(select(PortfolioOpening.account_id)))
+    return [p for p in rows if p.account_id not in enrolled_ids and not (enrolled_ids and account_id in (None, "all"))] + projection_accounts(db, account_id)
 
 
 def sample_template_sync_ids(db: Session) -> set[str]:
@@ -539,6 +573,8 @@ def recent_news_for_code(db: Session, code: str, days: int = 3, limit: int = 12)
 
 def delete_local_data(db: Session) -> None:
     for model in (
+        PortfolioEvent,
+        PortfolioOpening,
         ReturnObservation,
         HoldingObservationBatch,
         Alert,
