@@ -96,6 +96,8 @@ class Prices:
                     "floating": native_gain, "holding_return": native_gain / cost if q and cost is not None and cost > ZERO and native_gain is not None else None,
                     "floating_cny": cny - p["cost_cny"] if q and cny is not None and p["cost_cny"] is not None else None,
                     "realized": p["realized"], "realized_cny": p["realized_cny"], "cycle": p["cycle"],
+                    "closed_cycles": deepcopy(p["closed_cycles"]),
+                    "closed_return": p["closed_cycles"][-1]["return"] if not q and p["closed_cycles"] and p["closed_cycles"][-1]["cycle"] == p["cycle"] else None,
                     "quote": quote, "fx": self.fx.get(p["currency"]), "last_at": p["last_at"], "first_at": p["first_at"],
                     "position_layer": p.get("position_layer") or "中期配置仓"})
             for curr, amount in book["cash"].items():
@@ -115,6 +117,8 @@ class Prices:
                 if cny is not None:
                     total -= cny
         complete = not any("缺少" in s for s in issues)
+        for p in positions:
+            p["position_weight"] = p["market_value_cny"] / total if complete and total > ZERO and p["market_value_cny"] is not None else None
         asset_returns = {}
         for code in {p["code"] for p in positions}:
             group = [p for p in positions if p["code"] == code and p["quantity"]]

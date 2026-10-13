@@ -4,6 +4,8 @@ export type Asset = {
   price: string | null; market_value: string | null; market_value_cny: string | null;
   floating: string | null; holding_return: string | null; realized: string | null; realized_cny: string | null;
   cycle: number; quote: { at: string; source: string; price_kind: string } | null;
+  position_weight: string | null; closed_return: string | null;
+  closed_cycles: Array<{ cycle: number; opened_at: string; closed_at: string; realized: string | null; disposed_cost: string | null; return: string | null }>;
 };
 export type Point = {
   observed_at: string; event_type: string; account_id: string; record_id: number | null;
@@ -21,3 +23,9 @@ export type RecordItem = { id: number; category: "trade" | "event"; kind: string
 export type OpeningAsset = { code: string; name: string; market: string; currency: string; asset_type: string; unit: string; quantity: string; average_cost: string | null; price: string | null; price_at?: string; cost_cny_amount?: string | null };
 export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string }>; source?: string };
 export type Portfolio = { current: Point | null; points: Point[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string> };
+
+export type Reconciliation = { code: string; currency: string; source_at: string; status: "mismatch" | "uncovered"; reason: string;
+  source_quantity: string; ledger_quantity: string | null; source_average_cost: string | null; ledger_average_cost: string | null };
+export type HistoryEntry = { kind: string; effective_at: string; data: Record<string, unknown> };
+export type HistoryPreview = { checkpoint_at: string; new_start: string; record_count: number; current: Point;
+  differences: Array<{ item: string; before: string | null; after: string | null }> };

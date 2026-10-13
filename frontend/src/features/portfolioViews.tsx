@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, ReactNode, ThHTMLAttributes } from 
 import { Alert, Button, Checkbox, Descriptions, Drawer, Dropdown, Empty as ArcoEmpty, Form, Input, Menu, Modal, Select, Spin, Table, Tabs, Tag, Upload } from "@arco-design/web-react";
 import { api, AccountDataOverview, AccountDeal, AccountSummary, AIAnalysis, AIConfigResponse, AIRuntimeConfig, AIWorkflowRun, Dashboard, DealPayload, DecisionCard, HealthStatus, ImportPreview, InvestorPreference, KLineItem, KLineResponse, NewsItem, Position, PositionSnapshotPayload, Profile, ProviderState, Review, TradeIntentPlan, TradeIntentTags, TradeReview, TradeReviewList, WorkflowArtifact, WorkflowStep } from "../api";
 import { PortfolioWorkbench } from "./portfolio/PortfolioWorkbench";
-import { PortfolioPanel } from "./portfolio/PortfolioPanel";
+import { AssetTable, PortfolioPanel } from "./portfolio/PortfolioPanel";
 
 const layers = ["全部", "核心长期仓", "中期配置仓", "短期交易仓", "期权仓", "遗留观察仓"];
 const intentTagGroups: Array<{ key: keyof TradeIntentTags; title: string; items: string[] }> = [
@@ -3036,6 +3036,8 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
   const [editingPosition, setEditingPosition] = useState<Position | null | "new">(null);
   const [editingDeal, setEditingDeal] = useState<AccountDeal | null | "new">(null);
   const [activeDataTab, setActiveDataTab] = useState("positions");
+  const [portfolioRevision, setPortfolioRevision] = useState(0);
+  useEffect(() => { setPortfolioRevision(v => v + 1); }, [overview?.ledger_positions, overview?.deals, overview?.ledger_enrolled]);
   const activeAccount = enabledAccounts.find((account) => account.account_id === activeAccountId) ?? enabledAccounts[0];
   const activeAccountConfigKey = activeAccount ? [
     activeAccount.account_id,
@@ -3061,9 +3063,12 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
       setOverview(null);
       return;
     }
+    let cancelled = false;
+    setOverview(null);
     api.accountDataOverview(activeAccountId)
-      .then(setOverview)
-      .catch((error) => setNotice(error instanceof Error ? error.message : "账户数据加载失败"));
+      .then(result => { if (!cancelled) setOverview(result); })
+      .catch((error) => { if (!cancelled) setNotice(error instanceof Error ? error.message : "账户数据加载失败"); });
+    return () => { cancelled = true; };
   }, [activeAccountId, activeAccountConfigKey]);
 
   async function chooseImport(file: File | null) {
@@ -3219,7 +3224,6 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
 
   return (
     <div className="data-console stack">
-      <PortfolioWorkbench key={activeAccountId} accountId={activeAccountId} accounts={accounts} onSelectAccount={id => { setActiveAccountId(id); setPreview(null); }} onChanged={async () => { await onImported(); setOverview(await api.accountDataOverview(activeAccountId)); }} />
       <DataDetailTabs
         accounts={enabledAccounts}
         activeAccount={activeAccount}
@@ -3252,6 +3256,8 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
         activeDataTab={activeDataTab}
         onDataTabChange={setActiveDataTab}
       />
+      {overview?.ledger_enrolled && <PortfolioPanel accountId={activeAccountId} revision={portfolioRevision} showAssetTable={false} />}
+      <PortfolioWorkbench key={activeAccountId} accountId={activeAccountId} accounts={accounts} revision={portfolioRevision} onSelectAccount={id => { setActiveAccountId(id); setPreview(null); }} onChanged={async () => { await onImported(); setOverview(await api.accountDataOverview(activeAccountId)); }} />
       {editingPosition ? (
         <PositionSnapshotModal
           account={activeAccount}
@@ -3483,6 +3489,8 @@ export function DataDetailTabs({
   onDataTabChange: (tab: string) => void;
 }) {
   const isPositionTab = activeDataTab === "positions";
+  const [includeClosed, setIncludeClosed] = useState(false), [detailCode, setDetailCode] = useState("");
+  useEffect(() => { setIncludeClosed(false); setDetailCode(""); }, [activeAccount.account_id]);
   const apiOnlySources = [
     { key: "quotes", dataType: "quote", title: "行情数据", updatedAt: overview?.updated_at.quote, ready: Boolean(overview?.updated_at.quote), note: "按当前账户持仓标的检测行情 API，并可拉取一次行情缓存。" },
     { key: "news", dataType: "news", title: "新闻数据", updatedAt: overview?.updated_at.news, ready: Boolean(overview?.updated_at.news), note: "按当前账户持仓标的检测新闻 API，并可拉取一次新闻缓存。" },
@@ -3491,8 +3499,8 @@ export function DataDetailTabs({
     <section className="panel data-detail-panel">
       <div className="toolbar data-management-toolbar">
         <div>
-          <h2>数据管理</h2>
-          <small>当前账户的数据管理入口；持仓、成交、行情和新闻数据统一缓存管理</small>
+          <h3>数据管理</h3>
+          <small>查看当前持仓、成交与行情资料；买卖、资金和市值更新在下方账户记账中维护</small>
         </div>
         <div className="inline-actions">
           <div className="data-management-filter">
@@ -3517,6 +3525,7 @@ export function DataDetailTabs({
           <div className="data-detail-tab-body">
             <div className="data-detail-action-row">
               <div className="data-detail-meta">更新时间 {overview?.updated_at.position ? formatDate(overview.updated_at.position) : "暂无刷新记录"}</div>
+              {overview?.ledger_enrolled && <Button onClick={() => setIncludeClosed(v => !v)}>{includeClosed ? "收起已清仓" : "包含已清仓"}</Button>}
               <DataTableActions
                 readOnly={overview?.ledger_enrolled}
                 isPositionTab={isPositionTab}
@@ -3533,7 +3542,8 @@ export function DataDetailTabs({
                 onAdd={onAddPosition}
               />
             </div>
-            <AccountPositionsTable positions={overview?.positions ?? []} onEdit={onEditPosition} onDelete={onDeletePosition} readOnly={overview?.ledger_enrolled} />
+            {overview?.ledger_enrolled ? <><AssetTable assets={(overview.ledger_positions ?? []).filter(p => includeClosed || Number(p.quantity) > 0)} maskAssets={assetMaskEnabled} accountNames={Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]))} onOpen={setDetailCode} />
+              <small className="metadata-note">点击标的查看收益与历次清仓。数量和成本由买卖记录自动更新；下方账户记账提供编辑入口。</small></> : <AccountPositionsTable positions={overview?.positions ?? []} onEdit={onEditPosition} onDelete={onDeletePosition} />}
           </div>
         </Tabs.TabPane>
         <Tabs.TabPane
@@ -3586,6 +3596,7 @@ export function DataDetailTabs({
           </Tabs.TabPane>
         ))}
       </Tabs>
+      {detailCode && <Drawer title="标的收益详情" visible width={1100} footer={null} onCancel={() => setDetailCode("")}><PortfolioPanel accountId={activeAccount.account_id} code={detailCode} maskAssets={assetMaskEnabled} /></Drawer>}
     </section>
   );
 }
@@ -4061,7 +4072,7 @@ export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = 
             ...accountPositionsTable.staticColumnProps("actions"),
             align: "center",
             className: "table-operation-column",
-            render: (_value, item: Position) => readOnly ? <small>由上方账目维护</small> : (
+            render: (_value, item: Position) => readOnly ? <small>由账户记账维护</small> : (
               <div className="row-actions">
                 <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>
                 <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>

@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Account, Deal, PortfolioEvent, PortfolioOpening, PositionSnapshot
+from app.models import Account, Deal, HoldingObservationBatch, PortfolioEvent, PortfolioOpening, PositionSnapshot
 from app.services.portfolio import service as s
 from app.services.sync import latest_positions, latest_account_snapshots
 
@@ -410,3 +410,154 @@ def test_account_names_include_transfer_counterparty_and_reflect_rename(records)
         db.get(Account, "test-a").display_name = "更新后的账户名称"
         db.commit()
     assert client.get("/api/portfolio/overview?account_id=test-b").json()["account_names"]["test-a"] == "更新后的账户名称"
+
+
+def test_closed_cycle_return_uses_all_disposed_cost_and_survives_rebuy(records):
+    client, sessions = records
+    with sessions() as db:
+        opening(db)
+        trade(db, quantity="10", price="10", fees="1")
+        trade(db, "SELL", quantity="4", price="12", fees="1", day=2)
+        trade(db, "SELL", quantity="6", price="13", fees="2", day=3)
+        p = current(db)["positions"][0]
+        # Net sale proceeds 47 + 76; cost 101; profit 22, return 22/101.
+        assert p["closed_return"] == D(22) / D(101)
+        assert p["closed_cycles"][0]["disposed_cost"] == 101
+        assert p["closed_cycles"][0]["realized"] == 22
+        trade(db, quantity="2", price="20", day=4)
+        p = current(db)["positions"][0]
+        assert p["closed_return"] is None and p["cycle"] == 2
+        assert p["closed_cycles"][0]["realized"] == 22
+        trade(db, "SELL", quantity="2", price="15", day=5)
+        p = current(db)["positions"][0]
+        assert p["realized"] == 12 and p["closed_return"] == D("-0.25")
+        assert [c["realized"] for c in p["closed_cycles"]] == [22, -10]
+    result = client.get("/api/data/accounts/test-a/overview").json()
+    assert result["positions"] == []
+    assert result["ledger_positions"][0]["closed_return"] == "-0.25"
+
+
+@pytest.mark.parametrize("cost", [None, "0"])
+def test_closed_cycle_unknown_or_zero_cost_has_no_percentage(records, cost):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, positions=[asset(quantity="1", average_cost=cost, price="10")])
+        trade(db, "SELL", quantity="1", price="12")
+        p = current(db)["positions"][0]
+        assert p["closed_return"] is None
+        assert len(p["closed_cycles"]) == 1
+        assert p["closed_cycles"][0]["realized"] == (None if cost is None else D(12))
+
+
+def test_transfer_out_does_not_reuse_a_previous_cycle_exit_percentage(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db)
+        opening(db, "test-b", cash="0")
+        trade(db, quantity="2", price="10")
+        trade(db, "SELL", quantity="2", price="11", day=2)
+        trade(db, quantity="2", price="20", day=3)
+        event(db, "position_transfer", 4, **asset(), quantity="2", to_account_id="test-b")
+        p = current(db, "test-a")["positions"][0]
+        assert p["quantity"] == 0 and p["closed_return"] is None
+        assert len(p["closed_cycles"]) == 1 and p["closed_cycles"][0]["return"] == D("0.1")
+
+
+def test_reconciliation_compares_snapshot_time_not_current_exit(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, positions=[asset(quantity="10", average_cost="8", price="10")])
+        db.add(PositionSnapshot(account_id="test-a", code="CN.TEST", market="CN", asset_type="stock", quantity=10,
+            average_cost=8, cost_method="average", raw_currency="CNY", snapshot_time=T, sync_id="source"))
+        db.commit()
+        trade(db, "SELL", quantity="10", price="12")
+        assert s.reconcile(db, "test-a") == []
+        source = db.scalar(select(PositionSnapshot))
+        source.average_cost = 9
+        db.commit()
+        diff = s.reconcile(db, "test-a")[0]
+        assert diff["status"] == "mismatch" and diff["ledger_quantity"] == "10"
+        assert diff["reason"] == "同一时点的平均成本不同"
+
+
+def test_reconciliation_older_source_is_uncovered_not_missing_trade(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, day=1)
+        db.add(PositionSnapshot(account_id="test-a", code="CN.TEST", market="CN", quantity=10,
+            average_cost=8, cost_method="average", raw_currency="CNY", snapshot_time=T, sync_id="old-source"))
+        db.commit()
+        diff = s.reconcile(db, "test-a")[0]
+        assert diff["status"] == "uncovered" and diff["ledger_quantity"] is None
+
+
+def test_reconciliation_full_snapshot_can_prove_absence_partial_cannot(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, positions=[asset(quantity="10", average_cost="8", price="10")])
+        batch = HoldingObservationBatch(account_id="test-a", observed_at=T + timedelta(days=1), completeness="partial",
+            market="CN", source="synthetic", sync_id="source", created_at=T)
+        db.add(batch); db.commit()
+        assert s.reconcile(db, "test-a") == []
+        batch.completeness = "full"; db.commit()
+        diff = s.reconcile(db, "test-a")[0]
+        assert diff["source_quantity"] == "0" and diff["ledger_quantity"] == "10"
+
+
+def test_zero_opening_first_deposit_and_buy_price_are_not_duplicate_positions(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, cash="0", day=-1)
+        event(db, "deposit", 0, amount="1000", currency="CNY")
+        trade(db, quantity="10", price="10", fees="1")
+        p = current(db)["positions"][0]
+        assert p["price"] == 10 and p["average_cost"] == D("10.1")
+        assert p["quantity"] == 10 and p["floating"] == -1
+        assert current(db)["profit"] == -1 and current(db)["cash_value"] == 899
+
+
+def history_payload(**changes):
+    return {"opening": {"effective_at": when(0), "cash": {"CNY": "1000"}}, "records": [
+        {"kind": "trade", "effective_at": when(1), "data": {**asset(), "side": "BUY", "quantity": "10", "price": "10", "fees": "1"}}], **changes}
+
+
+def test_history_preview_rollback_then_atomic_save_restores_full_profit(records):
+    client, sessions = records
+    with sessions() as db:
+        opening(db, day=3, cash="899", positions=[asset(quantity="10", average_cost="10.1", price="12")])
+        trade(db, "SELL", quantity="10", price="13", fees="2", day=4)
+        assert current(db)["profit"] == 8
+    endpoint = "/api/portfolio/accounts/test-a/history"
+    preview = client.post(endpoint + "/preview", json=history_payload())
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["differences"] == [] and preview.json()["current"]["profit"] == "27"
+    with sessions() as db:
+        assert db.get(PortfolioOpening, "test-a").effective_at == T + timedelta(days=3)
+        assert len(list(db.scalars(select(Deal)))) == 1
+        assert len(list(db.scalars(select(PortfolioEvent)))) == 0
+    result = client.post(endpoint, json=history_payload())
+    assert result.status_code == 200, result.text
+    with sessions() as db:
+        assert current(db)["profit"] == 27 and current(db)["total_assets"] == 1027
+        assert s.calculate(db, "test-a", T + timedelta(days=3))["current"]["positions"][0]["price"] == 12
+        origin = db.get(PortfolioOpening, "test-a")
+        assert origin.effective_at == T and origin.included_at == T
+        assert origin.data["history_checkpoints"][0]["cash"] == {"CNY": "899"}
+        assert len(list(db.scalars(select(Deal)))) == 2
+    assert client.post(endpoint, json=history_payload()).status_code == 400
+
+
+def test_history_mismatch_requires_confirmation_and_invalid_cash_rolls_back(records):
+    client, sessions = records
+    with sessions() as db:
+        opening(db, day=3, cash="900", positions=[asset(quantity="10", average_cost="10.1", price="12")])
+    endpoint = "/api/portfolio/accounts/test-a/history"
+    preview = client.post(endpoint + "/preview", json=history_payload()).json()
+    assert preview["differences"] == [{"item": "CNY 现金", "before": "900", "after": "899"}]
+    assert client.post(endpoint, json=history_payload()).status_code == 400
+    invalid = history_payload(opening={"effective_at": when(0), "cash": {"CNY": "0"}})
+    assert client.post(endpoint + "/preview", json=invalid).status_code == 400
+    with sessions() as db:
+        assert db.get(PortfolioOpening, "test-a").effective_at == T + timedelta(days=3)
+        assert not list(db.scalars(select(Deal))) and not list(db.scalars(select(PortfolioEvent)))
+    assert client.post(endpoint, json=history_payload(confirm_differences=True)).status_code == 200

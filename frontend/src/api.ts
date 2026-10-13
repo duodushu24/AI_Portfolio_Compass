@@ -1,3 +1,5 @@
+import type { Asset, Reconciliation } from "./features/portfolio/types";
+
 export type SyncStatus = {
   sync_id?: string;
   sync_type?: string;
@@ -251,7 +253,8 @@ export type DealPayload = {
 
 export type AccountDataOverview = {
   ledger_enrolled?: boolean;
-  reconciliation?: Array<{ code: string; source_quantity: string; ledger_quantity: string }>;
+  reconciliation?: Reconciliation[];
+  ledger_positions?: Asset[];
   account: AccountSummary;
   asset_snapshot: {
     account_id: string;

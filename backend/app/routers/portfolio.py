@@ -39,6 +39,16 @@ def trade(payload: dict = Body(...), db: Session = Depends(get_db)):
     return {"id": call(lambda: service.save_trade(db, payload))}
 
 
+@router.post("/accounts/{account_id}/history/preview")
+def preview_history(account_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    return call(lambda: service.rebuild_history(db, account_id, payload, preview=True))
+
+
+@router.post("/accounts/{account_id}/history")
+def save_history(account_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    return call(lambda: service.rebuild_history(db, account_id, payload))
+
+
 @router.put("/trades/{record_id}")
 def edit_trade(record_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
     return {"id": call(lambda: service.save_trade(db, payload, record_id))}

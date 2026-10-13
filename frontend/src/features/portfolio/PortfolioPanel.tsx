@@ -37,18 +37,19 @@ function Chart({ points, metric, onSelect, assetCode = "" }: { points: Point[]; 
 
 export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = {} }: { assets: Asset[]; onOpen?: (code: string) => void; maskAssets?: boolean; accountNames?: Record<string, string> }) {
   const money = (v: string | null) => maskAssets ? "••••" : numeric(v);
-  return <Table tableLayoutFixed rowKey={a => `${a.account_id}:${a.code}:${a.currency}:${a.unit}`} data={assets} pagination={{ pageSize: 8 }} scroll={{ x: 1380 }} columns={[
+  return <Table tableLayoutFixed rowKey={a => `${a.account_id}:${a.code}:${a.currency}:${a.unit}`} data={assets} pagination={{ pageSize: 8 }} scroll={{ x: 1510 }} columns={[
     { title: "账户 / 标的", width: 220, render: (_, a: Asset) => <div className="portfolio-asset-cell"><small>{accountLabel(a.account_id, accountNames)}</small>{onOpen ? <Button className="portfolio-asset-link" type="text" onClick={() => onOpen(a.code)}>{a.name || a.code}</Button> : <strong>{a.name || a.code}</strong>}{a.name && a.name !== a.code && <small>{a.code}</small>}</div> },
     { title: "状态 / 数量", width: 160, render: (_, a: Asset) => Number(a.quantity) ? <div className="portfolio-asset-cell"><span>{money(a.quantity)}</span><small>第 {a.cycle} 次持有</small></div> : "已清仓" },
     { title: "平均成本 / 现价", width: 210, render: (_, a: Asset) => `${money(a.average_cost)} / ${money(a.price)} ${a.currency}` },
-    { title: "持仓收益率", width: 130, render: (_, a: Asset) => percent(a.holding_return) },
-    { title: "浮动 / 已实现盈亏", width: 220, render: (_, a: Asset) => `${money(a.floating)} / ${money(a.realized)} ${a.currency}` },
+    { title: "持仓 / 清仓收益率", width: 160, render: (_, a: Asset) => <div className="portfolio-asset-cell"><span>{percent(Number(a.quantity) ? a.holding_return : a.closed_return)}</span>{!Number(a.quantity) && <small>最近一次清仓</small>}</div> },
+    { title: "浮动 / 累计已实现盈亏", width: 220, render: (_, a: Asset) => `${money(a.floating)} / ${money(a.realized)} ${a.currency}` },
     { title: "市值 CNY", width: 150, render: (_, a: Asset) => money(a.market_value_cny) },
+    { title: "仓位", width: 100, render: (_, a: Asset) => percent(a.position_weight) },
     { title: "报价依据", width: 290, render: (_, a: Asset) => a.quote ? `${timeLabel(a.quote.at)} · ${a.quote.price_kind === "nav" ? "正式净值" : a.quote.price_kind === "estimate" ? "估算" : "价格"} · ${a.quote.source}` : "缺价" },
   ]} />;
 }
 
-export function PortfolioPanel({ accountId = "all", code = "", maskAssets = false, revision = 0, onOpen, showPositions = true }: { accountId?: string; code?: string; maskAssets?: boolean; revision?: number; onOpen?: (code: string) => void; showPositions?: boolean }) {
+export function PortfolioPanel({ accountId = "all", code = "", maskAssets = false, revision = 0, onOpen, showPositions = true, showAssetTable = true }: { accountId?: string; code?: string; maskAssets?: boolean; revision?: number; onOpen?: (code: string) => void; showPositions?: boolean; showAssetTable?: boolean }) {
   const [data, setData] = useState<Portfolio | null>(null), [error, setError] = useState("");
   const [metric, setMetric] = useState("return"), [selected, setSelected] = useState<Point | null>(null), [closed, setClosed] = useState(false);
   const request = useRef(0);
@@ -57,19 +58,26 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
   const accountName = (id: string) => accountLabel(id, data?.account_names);
   const beginning = data?.points.find(p => p.interval === current?.interval && p.opening_assets != null);
   return <section className="panel portfolio-panel stack">
-    <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "账户收益"}</h3><small>{code ? "平均成本口径；清仓利润保留，重新买入开启新持有阶段" : "自建档净值收益 · 包含现金、资金进出与汇率 · CNY"}</small></div>{!code && <Select value={metric} onChange={setMetric} options={[{ value: "return", label: "累计账户收益率" }, { value: "profit", label: "自建档盈亏金额" }]} />}</div>
+    <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "账户收益"}</h3><small>{code ? "平均成本口径；清仓利润保留，重新买入开启新持有阶段" : "统计区间内的净值收益 · 包含现金、资金进出与汇率 · CNY"}</small></div>{!code && <Select value={metric} onChange={setMetric} options={[{ value: "return", label: "累计账户收益率" }, { value: "profit", label: "累计账户盈亏金额" }]} />}</div>
     {error && <Alert type="error" content={error} />}
-    {!code && current && <div className="portfolio-metrics"><div>账户总资产<strong>{money(current.total_assets)} CNY</strong></div><div>累计账户收益率<strong>{percent(current.cumulative_return)}</strong></div><div>自建档盈亏<strong>{money(current.profit)} CNY</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}
+    {!code && current && <div className="portfolio-metrics"><div>账户总资产<strong>{money(current.total_assets)} CNY</strong></div><div>累计账户收益率<strong>{percent(current.cumulative_return)}</strong></div><div>累计账户盈亏<strong>{money(current.profit)} CNY</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}
     {!code && current && <div className="portfolio-profit-basis"><p>账户盈亏从期初市值和现金开始统计；持仓的浮动／已实现盈亏按平均成本计算，可能包含期初已有浮盈或浮亏。</p><details><summary>查看账户盈亏计算依据</summary><p>收益起点：{beginning ? timeLabel(beginning.observed_at) : "期初估值待补齐"} · 期初总资产 {money(current.opening_assets)} CNY · 当前总资产 {money(current.total_assets)} CNY · 净外部入金 {money(current.net_flows)} CNY</p><p>账户盈亏＝当前总资产－期初总资产－期间净外部入金。买卖产生的现金已计入总资产，不另加一遍卖出利润。</p></details></div>}
     {current && (current.issues.length > 0 || current.performance_issues.length > 0) && <Alert type="warning" content={<details><summary>{current.quality === "missing" ? "资料缺失，完整资产及收益不可用" : "部分报价沿用旧值或使用估算；查看依据"}</summary>{[...current.issues, ...current.performance_issues].map(i => <p key={i}>{i}</p>)}</details>} />}
     {current?.ended && <Alert type="info" content="本连续区间已结束，保留最后有效收益；重新入金会开始新连续区间。" />}
     <Chart points={data?.points ?? []} metric={metric} assetCode={code} onSelect={setSelected} />
     {!current && <p>到账户与数据确认期初资料。未建档账户的旧快照保留为来源，不参与这条净值曲线。</p>}
-    {current && <><div className="portfolio-toolbar"><h4>{code ? "成本盈亏" : showPositions ? "持仓与已清仓标的" : "已清仓历史"}</h4>{!code && <Button onClick={() => setClosed(!closed)}>{closed ? "收起已清仓" : "包含已清仓"}</Button>}</div>{(showPositions || code || closed) && <AssetTable assets={current.positions.filter(a => code || (showPositions ? closed || Number(a.quantity) > 0 : !Number(a.quantity)))} onOpen={onOpen} maskAssets={maskAssets} accountNames={data?.account_names} />}</>}
+    {current && showAssetTable && <><div className="portfolio-toolbar"><h4>{code ? "成本盈亏" : showPositions ? "持仓与已清仓标的" : "已清仓历史"}</h4>{!code && <Button onClick={() => setClosed(!closed)}>{closed ? "收起已清仓" : "包含已清仓"}</Button>}</div>{(showPositions || code || closed) && <AssetTable assets={current.positions.filter(a => code || (showPositions ? closed || Number(a.quantity) > 0 : !Number(a.quantity)))} onOpen={onOpen} maskAssets={maskAssets} accountNames={data?.account_names} />}</>}
+    {code && current && <><h4>历次清仓</h4><Table rowKey={r => `${r.account_id}:${r.cycle}`} pagination={false} data={current.positions.flatMap(a => (a.closed_cycles ?? []).map(c => ({ ...c, account_id: a.account_id, currency: a.currency })))} columns={[
+      { title: "账户 / 阶段", render: (_, r) => `${accountName(r.account_id)} · 第 ${r.cycle} 次持有` },
+      { title: "开始 / 清仓时间", render: (_, r) => `${timeLabel(r.opened_at)} / ${timeLabel(r.closed_at)}` },
+      { title: "结转成本", render: (_, r) => `${money(r.disposed_cost)} ${r.currency}` },
+      { title: "清仓收益额", render: (_, r) => `${money(r.realized)} ${r.currency}` },
+      { title: "清仓收益率", render: (_, r) => percent(r.return) },
+    ]} /><small>清仓收益率＝该持有阶段已实现盈亏合计 ÷ 卖出结转成本合计，包含分批卖出；不是年化收益。未知或零成本不计算收益率。</small></>}
     {code && <Table rowKey={r => `${r.category}:${r.id}`} data={data?.records ?? []} pagination={{ pageSize: 8 }} columns={[{ title: "时间", dataIndex: "effective_at", render: timeLabel }, { title: "事项", render: (_, r) => `${accountName(r.account_id)} · ${labels[r.kind]}${r.is_void ? "（已作废）" : ""}` }, { title: "数量 / 价格 / 费用", render: (_, r) => maskAssets ? "••••" : `${r.data.side === "BUY" ? "买入" : r.data.side === "SELL" ? "卖出" : ""} ${r.data.quantity ?? ""} / ${r.data.price ?? ""} / ${r.data.fees ?? ""}` }]} />}
     {!code && <p className="metadata-note">未知历史人民币成本不以当前汇率补算。报价沿用情况与资金边界估算可查看每个点。</p>}
     {selected && <Drawer title={`${labels[selected.event_type]} · ${timeLabel(selected.observed_at)}`} visible width={1000} footer={null} onCancel={() => setSelected(null)}><div className="stack">
-      <p>总资产 {money(selected.total_assets)} CNY · 净值 {numeric(selected.nav)} · 份额 {money(selected.units)} · 收益率 {percent(selected.cumulative_return)} · 自建档盈亏 {money(selected.profit)} CNY</p>
+      <p>总资产 {money(selected.total_assets)} CNY · 净值 {numeric(selected.nav)} · 份额 {money(selected.units)} · 收益率 {percent(selected.cumulative_return)} · 累计账户盈亏 {money(selected.profit)} CNY</p>
       <Tag color={selected.quality === "complete" ? "green" : "orange"}>{selected.quality === "complete" ? "当时报价完整" : "估算 / 资料缺失"}</Tag>
       {selected.changes && <p>数量 {money(selected.changes.before_quantity)} → {money(selected.changes.after_quantity)}；剩余成本 {money(selected.changes.before_cost)} → {money(selected.changes.after_cost)}；本次已实现盈亏 {money(selected.changes.realized)}（原币）</p>}
       <AssetTable assets={selected.positions} maskAssets={maskAssets} accountNames={data?.account_names} /><p>现金：{selected.cash.map(c => `${accountName(c.account_id)} ${money(c.amount)} ${c.currency}`).join("；")}</p><p>待确认 / 待到账：{selected.pending.map(p => `${accountName(p.account_id)} · ${p.pending_id} ${money(p.amount)} ${p.currency}`).join("；") || "无"}</p>

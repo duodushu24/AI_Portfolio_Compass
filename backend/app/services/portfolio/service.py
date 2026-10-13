@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -7,7 +8,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountSnapshot, Deal, PortfolioEvent, PortfolioOpening, PositionSnapshot, QuoteSummary
+from app.models import Account, AccountSnapshot, Deal, HoldingObservationBatch, PortfolioEvent, PortfolioOpening, PositionSnapshot, QuoteSummary
 from .ledger import ASSETS, ZERO, currency, key, number
 from .performance import instant, iso, public, replay
 
@@ -103,7 +104,7 @@ def quotes(data, at):
     return result
 
 
-def save_opening(db, account_id, payload, correction=False):
+def save_opening(db, account_id, payload, correction=False, commit=True):
     if not db.get(Account, account_id):
         raise ValueError("账户不存在，请先在账户管理创建账户")
     previous = db.get(PortfolioOpening, account_id)
@@ -131,6 +132,8 @@ def save_opening(db, account_id, payload, correction=False):
     liabilities = {currency(c): str(number(v, minimum=ZERO)) for c, v in payload.get("liabilities", {}).items()}
     data = {"positions": positions, "cash": cash, "liabilities": liabilities, "effective_at": iso(at),
             "source": str(payload.get("source") or "用户确认期初"), **quotes({"prices": prices, "fx": payload.get("fx", {})}, at)}
+    if previous and previous.data.get("history_checkpoints"):
+        data["history_checkpoints"] = deepcopy(previous.data["history_checkpoints"])
     included_at = instant(payload.get("included_at") or at) if payload.get("included", True) else None
     excluded_at = instant(payload["excluded_at"]) if payload.get("excluded_at") else None
     if included_at and (included_at < at or excluded_at and excluded_at <= included_at):
@@ -140,7 +143,77 @@ def save_opening(db, account_id, payload, correction=False):
         row.effective_at, row.included_at, row.excluded_at, row.data = at, included_at, excluded_at, data
         db.add(row)
         return account_id
-    return transaction(db, write)
+    return transaction(db, write) if commit else write()
+
+
+def rebuild_history(db, account_id, payload, *, preview=False):
+    """Move an existing opening backwards and add its missing history as one transaction."""
+    def write():
+        old = db.get(PortfolioOpening, account_id)
+        if old is None:
+            raise ValueError("请先设置账户起点；新账户可从零持仓和首笔入金开始")
+        original = deepcopy(old.data)
+        old_at, new_at = old.effective_at, instant(payload["opening"]["effective_at"])
+        if new_at >= old_at:
+            raise ValueError("补录历史的新起点必须早于原起点")
+        before = calculate(db, account_id, old_at)["current"]
+        start = {**payload["opening"], "positions": [], "liabilities": {}, "source": "从首笔交易前补录历史",
+                 "included": old.included_at is not None,
+                 "included_at": iso(new_at if old.included_at == old_at else old.included_at) if old.included_at else None,
+                 "excluded_at": iso(old.excluded_at) if old.excluded_at else None}
+        save_opening(db, account_id, start, correction=True, commit=False)
+        db.flush()
+        if not payload.get("records"):
+            raise ValueError("请添加新起点至原起点之间的历史买卖或资金记录")
+        for record in payload["records"]:
+            at = instant(record["effective_at"])
+            if not new_at <= at <= old_at:
+                raise ValueError("本批历史记录必须位于新起点与原起点之间")
+            if record["kind"] == "trade":
+                save_trade(db, {**record["data"], "account_id": account_id, "effective_at": iso(at)}, commit=False)
+            else:
+                save_event(db, {"account_id": account_id, "kind": record["kind"], "effective_at": iso(at),
+                                "data": record["data"]}, commit=False)
+        # Keep the original dated prices as observations, not a second initialization.
+        if original.get("prices") or original.get("fx"):
+            save_event(db, {"account_id": account_id, "kind": "valuation", "effective_at": iso(old_at),
+                "data": {"prices": original.get("prices", []), "fx": original.get("fx", {}), "note": "保留原起点报价依据"}}, commit=False)
+        db.flush()
+        validate(db)
+        after = calculate(db, account_id, old_at)["current"]
+        differences = []
+        def check(label, expected, actual):
+            if expected is None:
+                return  # An unknown old cost is not an authoritative checkpoint.
+            if actual is None or abs(number(expected) - number(actual)) > Decimal("0.000001"):
+                differences.append({"item": label, "before": public(expected), "after": public(actual)})
+        old_positions = {key(p): p for p in before["positions"]}
+        new_positions = {key(p): p for p in after["positions"]}
+        for k in old_positions.keys() | new_positions.keys():
+            p, q = old_positions.get(k), new_positions.get(k)
+            label = f"{k[0]} · {k[1]} · {k[2]}"
+            check(label + " 数量", p["quantity"] if p else ZERO, q["quantity"] if q else ZERO)
+            check(label + " 剩余成本", p["cost"] if p else ZERO, q["cost"] if q else ZERO)
+        for field, label in (("cash", "现金"), ("liabilities", "负债")):
+            b = {p["currency"]: p["amount"] for p in before[field]}
+            a = {p["currency"]: p["amount"] for p in after[field]}
+            for curr in b.keys() | a.keys():
+                check(f"{curr} {label}", b.get(curr, ZERO), a.get(curr, ZERO))
+        if before["pending"] != after["pending"]:
+            differences.append({"item": "待确认 / 待到账款项", "before": "原起点款项", "after": "补录后的款项不同"})
+        if not preview and differences and not payload.get("confirm_differences", False):
+            raise ValueError("原起点的数量、成本或现金存在差异，请先试算核对并明确确认差异")
+        checkpoint = {"effective_at": iso(old_at), "positions": original["positions"], "cash": original["cash"],
+                      "liabilities": original.get("liabilities", {}), "source": original.get("source", "原期初")}
+        old.data = {**old.data, "history_checkpoints": [*original.get("history_checkpoints", []), checkpoint]}
+        return public({"checkpoint_at": iso(old_at), "new_start": iso(new_at), "differences": differences,
+                       "current": calculate(db, account_id)["current"], "record_count": len(payload["records"])})
+    if not preview:
+        return transaction(db, write)
+    try:
+        return write()
+    finally:
+        db.rollback()  # A preview never leaves openings, events or deals behind.
 
 
 def save_trade(db, payload, record_id=None, commit=True):
@@ -351,17 +424,56 @@ def projection_accounts(db, account_id=None):
 
 def reconcile(db, account_id):
     from app.services.holding_history import positions_as_of
-    current = calculate(db, account_id)["current"]
-    if not current:
+    opening = db.get(PortfolioOpening, account_id)
+    if not opening:
         return []
-    canonical = {p["code"]: p for p in current["positions"]}
+    account = db.get(Account, account_id)
+    history = facts(db)
+    cache = {}
+    def at_time(at):
+        at = instant(at)
+        if at not in cache:
+            cache[at] = replay(*history, scope=account_id, until=at)["current"]
+        return cache[at]
     differences = []
+    seen = set()
+    def compare(code, curr, unit, at, q, avg=None, compare_cost=False):
+        marker = (code, curr, unit, instant(at))
+        if marker in seen:
+            return
+        seen.add(marker)
+        current = at_time(at)
+        p = next((p for p in current["positions"] if key(p) == (code, curr, unit)), None) if current else None
+        item = {"code": code, "currency": curr, "unit": unit, "source_at": iso(at), "source_quantity": str(q),
+                "source_average_cost": str(avg) if compare_cost else None}
+        if instant(at) < opening.effective_at:
+            differences.append({**item, "status": "uncovered", "ledger_quantity": None, "ledger_average_cost": None,
+                                "reason": "来源日期早于账户统计起点，暂无法核对"})
+            return
+        quantity, average = (p["quantity"], p["average_cost"]) if p else (ZERO, None)
+        quantity_differs = abs(quantity - number(q)) > Decimal("0.00000001")
+        cost_differs = compare_cost and quantity > ZERO and (average is None or abs(average - number(avg)) > Decimal("0.000001"))
+        if quantity_differs or cost_differs:
+            differences.append({**item, "status": "mismatch", "ledger_quantity": str(quantity),
+                "ledger_average_cost": str(average) if average is not None else None,
+                "reason": "同一时点的数量不同" if quantity_differs else "同一时点的平均成本不同"})
     for row in positions_as_of(db, account_id):
-        p = canonical.get(row.code)
-        q, avg = (p["quantity"], p["average_cost"]) if p else (ZERO, None)
-        if q != number(row.quantity) or row.cost_method == "average" and avg != number(row.average_cost):
-            differences.append({"code": row.code, "source_at": iso(row.snapshot_time), "source_quantity": str(row.quantity),
-                "ledger_quantity": str(q), "source_average_cost": str(row.average_cost), "ledger_average_cost": str(avg) if avg is not None else None})
+        compare(row.code, row.raw_currency or account.base_currency, "fund_unit" if row.asset_type == "fund" else "share",
+                row.snapshot_time, row.quantity, row.average_cost, row.cost_method == "average")
+    # Only a full observation proves that unlisted assets were absent. Partial imports do not.
+    full_scopes = {}
+    for batch in db.scalars(select(HoldingObservationBatch).where(HoldingObservationBatch.account_id == account_id,
+            HoldingObservationBatch.completeness == "full").order_by(HoldingObservationBatch.observed_at, HoldingObservationBatch.id)):
+        full_scopes[batch.market] = batch
+    for market, batch in full_scopes.items():
+        current = at_time(batch.observed_at)
+        if current is None:
+            continue
+        rows = positions_as_of(db, account_id, batch.observed_at)
+        source_keys = {(r.code, r.raw_currency or account.base_currency, "fund_unit" if r.asset_type == "fund" else "share") for r in rows}
+        for p in current["positions"]:
+            if p["quantity"] and (not market or p["market"] == market) and key(p) not in source_keys:
+                compare(p["code"], p["currency"], p["unit"], batch.observed_at, ZERO)
     return differences
 
 

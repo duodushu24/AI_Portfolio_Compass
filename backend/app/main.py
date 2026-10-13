@@ -856,7 +856,9 @@ def account_data_overview(account_id: str, db: Session = Depends(get_db)) -> dic
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     snapshot = next(iter(latest_account_snapshots(db, account_id)), None)
-    positions = latest_positions(db, account_id)
+    ledger_enrolled = portfolio_service.enrolled(db, account_id)
+    ledger_positions = portfolio_service.projection_positions(db, account_id, include_closed=True) if ledger_enrolled else []
+    positions = [p for p in ledger_positions if p.quantity > 0] if ledger_enrolled else latest_positions(db, account_id)
     position_codes = [item.code for item in positions if item.code and not item.missing_market_code]
     markets = _account_data_markets(account, positions)
     latest_quote_time = None
@@ -874,8 +876,9 @@ def account_data_overview(account_id: str, db: Session = Depends(get_db)) -> dic
         ).all()
     )
     return {
-        "ledger_enrolled": portfolio_service.enrolled(db, account_id),
-        "reconciliation": portfolio_service.reconcile(db, account_id) if portfolio_service.enrolled(db, account_id) else [],
+        "ledger_enrolled": ledger_enrolled,
+        "ledger_positions": [p.ledger_result for p in ledger_positions],
+        "reconciliation": portfolio_service.reconcile(db, account_id) if ledger_enrolled else [],
         "account": _account_to_dict(account, snapshot),
         "asset_snapshot": _asset_snapshot_to_dict(snapshot) if snapshot else None,
         "positions": [_position_to_dict(item) for item in positions],
