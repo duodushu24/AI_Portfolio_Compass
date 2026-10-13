@@ -7,7 +7,7 @@ status: closed
 created: "2026-10-13"
 updated: "2026-10-13"
 issues: ["P-005"]
-commits: []
+commits: ["e40ffc87c13fc9fefd023483e900f8cd2276d80c"]
 evidence: ["backend/app/services/portfolio/ledger.py", "backend/app/services/portfolio/performance.py", "backend/app/services/portfolio/service.py", "backend/app/routers/portfolio.py", "backend/tests/test_portfolio_ledger.py", "frontend/src/features/portfolio/PortfolioWorkbench.tsx", "frontend/src/features/portfolio/PortfolioPanel.tsx"]
 closed_reason: "S-002 完整业务实现及相关技术验证完成"
 closed_result: "期初、买卖、现金/资金、市值与净值曲线和清仓详情闭环可用；真实账户验收由 P-005 继续跟踪"
@@ -41,4 +41,6 @@ closed_result: "期初、买卖、现金/资金、市值与净值曲线和清仓
 
 报价读取与行情适配器接入路径仅用合成资料核对；本次未调用外部模型或真实 OpenD。适配器返回旧收盘价时保持原报价日期，观察时间为本次取得时点，不生成建档前资金事件；旧价不会压过更晚有效报价。相同代码/报价时间的缓存复用；同时间不同价格需明确纠错，避免重复拉取撞唯一约束。普通 ID 更正账户遇到该账户已有相同成交号时拒绝，双方来源保留。
 
-本地实施提交在批次收尾后回填 `commits`；不包含运行数据库、日记、浏览器截图或工作区既有无关文件，不推送。技术验证只用虚构金额；真实账户期初、历史人民币成本来源及实际使用验收仍需用户核对。稳定行情、K 线恢复、复杂融资/期权数量单位、建档前完整利润恢复和自动历史迁移不在本批次范围。
+实施提交已写入 `commits`，不包含运行数据库、日记、浏览器截图或工作区既有无关文件，未推送。技术验证只用虚构金额；真实账户期初、历史人民币成本来源及实际使用验收仍需用户核对。稳定行情、K 线恢复、复杂融资/期权数量单位、建档前完整利润恢复和自动历史迁移不在本批次范围。
+
+P/C/索引结构检查为 13 条记录、2 个当前 S、0 个错误，P/S/C/索引正文链接另行检查通过；普通 Markdown S 的正文与需求不是自动检查器的覆盖范围。提交对象另行核对，未包含私有数据或用户原有导出/删除改动。隔离临时服务与隐藏浏览器已停止，未重启用户正式服务。
