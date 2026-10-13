@@ -15,9 +15,11 @@ closed_result: "完整/局部/空仓历史与自由时点持仓收益曲线可�
 
 # C-007：持仓历史和手工收益曲线第一阶段
 
+> 后续设计状态（2026-10-13）：本文为既有实施的历史记录。S-001 已归档、原后续阶段停止；当前设计为 [S-002](../issues/solutions/P-005/S-002-account-ledger-performance.md)。本文的“阶段 II/III”仅表示当时未实施范围，不用于安排当前开发。原提交、验证结果与限制保留，不代表 S-002 已实现或完整账户功能已验收。
+
 ## 目标与范围
 
-落实 [P-005](../issues/P-005-portfolio-return-history.md) 的 [S-001 阶段 I](../issues/solutions/P-005/S-001-average-cost-return-curve.md#6-实施分期审核点与验收)。保留现有 React/FastAPI/SQLite；只交付持仓观察历史和持仓收益曲线，不启动成交成本自动结转、已实现/累计收益、现金净值、外部采集或 Agent 工作流。
+当时落实 [P-005](../issues/P-005-portfolio-return-history.md) 的 S-001 阶段 I（[原方案已归档，仅用于历史追溯](../issues/solutions/P-005/archive/S-001-average-cost-return-curve.md)）。保留现有 React/FastAPI/SQLite；该批次只交付持仓观察历史和持仓收益曲线，未启动成交成本自动结转、已实现/累计收益、现金净值、外部采集或 Agent 工作流。
 
 ## 实际修改
 
