@@ -21,7 +21,7 @@ updated: "2026-10-13"
 
 2026-10-13 用户实际使用后反馈日记功能目前没问题，[P-001](issues/P-001-personal-records.md) 本轮验收结束并关闭，既有实施和验证记录保留；本次文档维护未重新运行日记业务测试。
 
-当前焦点为 [P-005：跨账户组合收益曲线与持仓历史](issues/P-005-portfolio-return-history.md)。用户已明确只使用平均成本；自由时点记录、持仓/累计收益口径、调仓标记及行情候选已整理为 [S-001](issues/solutions/P-005/S-001-average-cost-return-curve.md)，等待审核，尚未实施。优先读取 P 的范围与完成条件，审核或实施时再展开 S。
+当前焦点为 [P-005：跨账户组合收益曲线与持仓历史](issues/P-005-portfolio-return-history.md)。用户已授权先实施 [S-001](issues/solutions/P-005/S-001-average-cost-return-curve.md) 阶段 I；持仓历史、手工收益观察、持仓收益主图、已知成交标记和按需标的曲线已实施并通过直接验证，等待用户试用。最新批次为 [C-007](CODE_CHANGE_LOG/C-007-holding-return-history.md)。阶段 II/III 的成本结转、已实现/累计收益、现金净值与真实自动采集未启动。了解进度先读 P，验证和追溯再读 C，继续开发再读对应 S。
 
 P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围与完成条件尚未确认；本次收益曲线建档不启动 Agent 工作流。旧 `docs/personal-investment-agent-roadmap.md` 仅供历史追溯，不作启动或实施前置，也不扩大当前范围。
 
@@ -33,7 +33,7 @@ P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围�
 | ID | 标题 | 状态 | 下一步 / 恢复条件 |
 |---|---|---|---|
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
-| [P-005](issues/P-005-portfolio-return-history.md) | 跨账户组合收益曲线与持仓历史 | active | 用户审核平均成本收益曲线方案、实施分期与收益口径，确认后开始开发 |
+| [P-005](issues/P-005-portfolio-return-history.md) | 跨账户组合收益曲线与持仓历史 | active | 用户试用阶段 I 的持仓历史、收益观察与曲线；确认后另行启动阶段 II 成本结转和累计金额 |
 <!-- project-memory:open:end -->
 
 ## 功能总览与维护
