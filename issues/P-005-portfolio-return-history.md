@@ -6,10 +6,10 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-13"
-changes: ["C-007", "C-008"]
+changes: ["C-007", "C-008", "C-009"]
 related: ["P-001", "P-002"]
-evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md"]
-next: "重启服务后确认真实账户期初，验收买卖、资金、市值和收益详情操作"
+evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md"]
+next: "验收账户名称与收益口径展示，继续核对完整账户记账操作"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
 ---
@@ -22,7 +22,7 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 
 **S-001 已归档并停止作为开发依据，原阶段 II/III 不再执行。** 后续启动、规划、实施和验收依据只取本 P 与 S-002，不沿用旧分期；历史方案仅明确追溯时读取。
 
-2026-10-13 用户授权按 S-002 实施，由 [C-008](../CODE_CHANGE_LOG/C-008-account-ledger-performance.md) 记录。完整账户闭环已实现：确认期初后，买卖自动更新平均成本、现金和已实现盈亏，资金和市值更新自动形成净值观察；清仓历史与普通 ID 纠错可用。账目 19 项、旧历史/成交复盘 21 项相关隔离合同均有通过结果；后续改动只复核受影响案例，前端构建和隔离浏览器完整操作通过。旧 C-007 资料保留为来源；真实账户尚未建档或迁移，本问题保持 active，等待用户验收。
+2026-10-13 用户授权按 S-002 实施，由 [C-008](../CODE_CHANGE_LOG/C-008-account-ledger-performance.md) 记录完整闭环及隔离验证。用户现已自行建档并试用买卖，反馈账户 ID 可读性及清仓成本利润与自建档业绩的差异。[C-009](../CODE_CHANGE_LOG/C-009-account-names-profit-basis.md) 修正名称、表格列宽和计算依据说明；指定账户只读勾稽确认该差异符合期初浮盈、成交与费用记录，未修改收益公式或真实数据。新增 2 个隔离测试、构建与相关浏览器验证通过，P-005 仍 active，等待整体使用验收。旧 C-007 资料保留为来源，不作第二份自动账目。
 
 日记功能已获用户试用反馈“该功能目前没问题”，由 P-001 记录本轮验收结束。收益曲线属于独立增强，不继续扩大日记问题；本问题不启动 P-002 的 Agent 复盘工作流。
 

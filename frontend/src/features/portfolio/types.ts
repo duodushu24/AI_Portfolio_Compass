@@ -8,6 +8,7 @@ export type Asset = {
 export type Point = {
   observed_at: string; event_type: string; account_id: string; record_id: number | null;
   total_assets: string | null; cash_value: string | null; market_value: string | null; profit: string | null;
+  opening_assets: string | null; net_flows: string;
   cumulative_return: string | null; nav: string | null; units: string; interval: number; ended: boolean;
   external_flow: string | null; quality: string; issues: string[]; performance_issues: string[];
   asset_returns: Record<string, string | null>;
@@ -19,4 +20,4 @@ export type Point = {
 export type RecordItem = { id: number; category: "trade" | "event"; kind: string; account_id: string; effective_at: string; data: Record<string, unknown>; is_void: boolean };
 export type OpeningAsset = { code: string; name: string; market: string; currency: string; asset_type: string; unit: string; quantity: string; average_cost: string | null; price: string | null; price_at?: string; cost_cny_amount?: string | null };
 export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string }>; source?: string };
-export type Portfolio = { current: Point | null; points: Point[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string };
+export type Portfolio = { current: Point | null; points: Point[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string> };

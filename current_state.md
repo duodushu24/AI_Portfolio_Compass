@@ -22,7 +22,7 @@ updated: "2026-10-13"
 
 2026-10-13 用户实际使用后反馈日记功能目前没问题，[P-001](issues/P-001-personal-records.md) 本轮验收结束并关闭，既有实施和验证记录保留；本次文档维护未重新运行日记业务测试。
 
-当前焦点为 [P-005：全账户持仓记录与收益统计](issues/P-005-portfolio-return-history.md)，**唯一当前设计为 [S-002：完整账户记账与收益计算](issues/solutions/P-005/S-002-account-ledger-performance.md)**。2026-10-13 授权实施由 [C-008](CODE_CHANGE_LOG/C-008-account-ledger-performance.md) 完成：期初、平均成本、现金/资金、手工市值、净值曲线及清仓详情已接入，相关隔离测试、构建和浏览器闭环通过。真实账目未自动建档，P-005 保持 active，待用户确认期初并验收。后续排查先读 P-005 与 C-008，需要核对设计才展开 S-002。
+当前焦点为 [P-005：全账户持仓记录与收益统计](issues/P-005-portfolio-return-history.md)，**唯一当前设计为 [S-002：完整账户记账与收益计算](issues/solutions/P-005/S-002-account-ledger-performance.md)**。[C-008](CODE_CHANGE_LOG/C-008-account-ledger-performance.md) 完成期初、平均成本、现金/资金、市值、净值曲线及清仓详情。2026-10-13 用户已自行建档试用，[C-009](CODE_CHANGE_LOG/C-009-account-names-profit-basis.md) 修正账户名称、列宽与收益口径说明，核对指定账户后确认清仓成本利润与自建档业绩的差异符合录入资料；金融公式及真实账目未更改。相关隔离测试、构建和浏览器验证通过，P-005 保持 active，待整体使用验收。排查先读 P-005 与相关 C，需要设计才展开 S-002。
 
 S-001 已移入 P-005 的 archive 并停止执行，其原阶段 II/III 不再作为后续任务；启动、规划与开发不默认读取该历史方案。C-007 保留旧实现与验证事实，相关功能已由 C-008 按 S-002 重构；旧私有资料未自动转换，技术验证通过不代表真实账户业务已验收。继续任务先读 P-005 与相关 C；需要核对设计才展开 S-002，C-007 仅在追溯旧实现时按需读取。
 
@@ -36,7 +36,7 @@ P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围�
 | ID | 标题 | 状态 | 下一步 / 恢复条件 |
 |---|---|---|---|
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
-| [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 重启服务后确认真实账户期初，验收买卖、资金、市值和收益详情操作 |
+| [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 验收账户名称与收益口径展示，继续核对完整账户记账操作 |
 <!-- project-memory:open:end -->
 
 ## 功能总览与维护

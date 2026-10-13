@@ -261,13 +261,18 @@ def overview(db, scope="all", until=None, code=None):
         points = [p for p in points if p["positions"]]
     openings, deals, events = facts(db)
     ids = {o.account_id for o in openings} if scope == "all" else {scope}
+    name_ids = ids | {e.account_id for e in events if e.data.get("to_account_id") in ids}
+    name_ids |= {e.data["to_account_id"] for e in events if e.account_id in ids and e.data.get("to_account_id")}
+    account_names = {a.account_id: (a.display_name or "").strip() or (a.institution or "").strip() or "未命名账户"
+                     for a in db.scalars(select(Account).where(Account.account_id.in_(name_ids)))}
     records = [{"id": d.id, "category": "trade", "kind": "trade", "account_id": d.account_id,
                 "effective_at": iso(d.deal_time), "data": d.ledger_data, "is_void": d.is_void}
                for d in deals if d.account_id in ids and (not code or d.code == code)]
     records += [{"id": e.id, "category": "event", "kind": e.kind, "account_id": e.account_id,
                  "effective_at": iso(e.effective_at), "data": e.data, "is_void": e.is_void}
                 for e in events if (e.account_id in ids or e.data.get("to_account_id") in ids) and (not code or e.data.get("code") == code or any(p["code"] == code for p in e.data.get("prices", [])))]
-    return public({"scope": scope, "currency": "CNY", "current": points[-1] if points else None, "points": points,
+    return public({"scope": scope, "currency": "CNY", "account_names": account_names,
+        "current": points[-1] if points else None, "points": points,
         "records": sorted(records, key=lambda r: (r["effective_at"], r["category"], r["id"]), reverse=True),
         "openings": [{"account_id": o.account_id, "effective_at": iso(o.effective_at), "included": o.included_at is not None,
                       "included_at": iso(o.included_at) if o.included_at else None, "excluded_at": iso(o.excluded_at) if o.excluded_at else None,

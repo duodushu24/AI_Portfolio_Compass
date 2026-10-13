@@ -374,3 +374,39 @@ def test_account_correction_duplicate_external_deal_id_keeps_both_sources(record
     with sessions() as db:
         assert db.get(Deal, record_id).account_id == "test-a"
         assert len(list(db.scalars(select(Deal)))) == 2
+
+
+def test_realized_profit_includes_opening_gain_while_period_profit_starts_at_market_value(records):
+    client, sessions = records
+    with sessions() as db:
+        db.get(Account, "test-a").display_name = "示例证券账户"
+        db.commit()
+        s.save_opening(db, "test-a", {"effective_at": when(), "positions": [asset(code="US.TEST", market="US", currency="USD", quantity="10", average_cost="10", price="15")],
+            "cash": {"USD": "0"}, "fx": {"USD": {"rate": "7", "at": when()}}})
+        trade(db, "SELL", "10", "17", day=1, fees="1", code="US.TEST", market="US", currency="USD", fx={"USD": {"rate": "7", "at": when(1)}})
+        trade(db, quantity="20", price="4", day=2, fees="1", code="US.NEW", market="US", currency="USD", fx={"USD": {"rate": "7", "at": when(2)}})
+        p = current(db)
+        sold = next(a for a in p["positions"] if a["code"] == "US.TEST")
+        assert sold["realized"] == 69  # Average cost 100; net sale proceeds 169.
+        assert p["opening_assets"] == 1050  # Opening market value 150 USD, not cost 100 USD.
+        assert p["total_assets"] == 1176 and p["profit"] == 126  # (19 USD new gain - 1 USD new buy fee) * 7.
+    response = client.get("/api/portfolio/overview?account_id=test-a")
+    assert response.status_code == 200
+    assert response.json()["account_names"] == {"test-a": "示例证券账户"}
+
+
+def test_account_names_include_transfer_counterparty_and_reflect_rename(records):
+    client, sessions = records
+    with sessions() as db:
+        db.get(Account, "test-a").display_name = "示例转出账户"
+        db.get(Account, "test-b").display_name = "示例转入账户"
+        db.commit()
+        opening(db)
+        opening(db, "test-b", cash="0")
+        event(db, "transfer", 1, amount="10", currency="CNY", to_account_id="test-b")
+    names = client.get("/api/portfolio/overview?account_id=test-b").json()["account_names"]
+    assert names == {"test-a": "示例转出账户", "test-b": "示例转入账户"}
+    with sessions() as db:
+        db.get(Account, "test-a").display_name = "更新后的账户名称"
+        db.commit()
+    assert client.get("/api/portfolio/overview?account_id=test-b").json()["account_names"]["test-a"] == "更新后的账户名称"
