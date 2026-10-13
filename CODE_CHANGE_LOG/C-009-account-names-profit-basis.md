@@ -7,7 +7,7 @@ status: closed
 created: "2026-10-13"
 updated: "2026-10-13"
 issues: ["P-005"]
-commits: []
+commits: ["cff69e29b30532a360ce057350d8d90b0c770860"]
 evidence: ["backend/app/services/portfolio/service.py", "backend/tests/test_portfolio_ledger.py", "frontend/src/features/portfolio/PortfolioPanel.tsx", "frontend/src/features/portfolio/PortfolioWorkbench.tsx", "frontend/src/features/portfolio/portfolio.css", "frontend/src/features/ReturnHistoryPanel.tsx"]
 closed_reason: "账户名称、表格排版和收益解释修正及直接相关验证完成"
 closed_result: "界面展示账户名称，表格不再挤占相邻列；核对后确认成本利润与自建档业绩的差异符合已录入资料，未修改金融公式或真实账目"
@@ -34,4 +34,4 @@ closed_result: "界面展示账户名称，表格不再挤占相邻列；核对�
 - 隔离 Edge/FastAPI/Vite 使用虚构账户验证名称不显示为 ID、长名称与数量列不重叠、账户盈亏计算依据、清仓详情与成交名称；无 JS 异常，合成截图另作视觉核对。实际 OpenD、行情与外部模型不调用。
 - 真实账户只读核对，不代表对原始价格、平均成本来源或市场数据真实性作外部审计。真实金额未写入公开记录或测试，用户已有无关改动保留。
 
-本地实施提交在收尾后回填，未推送。P-005 继续等待用户整体使用验收，不因一次显示修正自动关闭。
+本地实施提交已回填，未推送。项目记忆检查通过（14 条记录、2 条当前方案、0 个错误）；隔离验证服务已停止。P-005 继续等待用户整体使用验收，不因一次显示修正自动关闭。
