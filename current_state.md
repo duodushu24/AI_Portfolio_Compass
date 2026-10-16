@@ -1,7 +1,7 @@
 ---
 schema: project-memory/v1
 kind: index
-updated: "2026-10-13"
+updated: "2026-10-16"
 ---
 
 # 当前状态 — AI Portfolio Compass
@@ -20,6 +20,8 @@ updated: "2026-10-13"
 
 ## 当前焦点与范围
 
+2026-10-16 新增 [P-006：银行黄金按克记账](issues/P-006-bank-gold.md)。用户批准人民币银行积存金／账户黄金方案，[C-011](CODE_CHANGE_LOG/C-011-bank-gold.md) 完成贵金属类型、克单位、独立银行产品报价及记账/导入/展示支持；隔离测试与前端构建通过。正式服务和真实账目未操作，等待重启后的实际使用验收；不扩大到实物、保证金或自动银行行情。P-005 的既有收益口径继续适用。
+
 2026-10-13 用户实际使用后反馈日记功能目前没问题，[P-001](issues/P-001-personal-records.md) 本轮验收结束并关闭，既有实施和验证记录保留；本次文档维护未重新运行日记业务测试。
 
 当前焦点为 [P-005：全账户持仓记录与收益统计](issues/P-005-portfolio-return-history.md)，**唯一当前设计为 [S-002：完整账户记账与收益计算](issues/solutions/P-005/S-002-account-ledger-performance.md)**。C-008 完成基础账目与收益，C-009 修正名称和口径解释；用户确认重启后名称已正常。[C-010](CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md) 完成数据页收敛、分阶段清仓收益率、同日期来源核对、首笔交易起点及已有账户向前补录。相关测试、构建/类型与隔离浏览器验证通过；真实账目未自动更改，P-005 保持 active，待实际使用验收。排查先读 P-005 与相关 C，需要设计才展开 S-002。
@@ -37,6 +39,7 @@ P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围�
 |---|---|---|---|
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
 | [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 验收页面收敛、清仓收益率与首笔交易及历史补录流程 |
+| [P-006](issues/P-006-bank-gold.md) | 银行黄金按克记账 | active | 重启后按银行黄金实际录入，验收单位、报价与收益 |
 <!-- project-memory:open:end -->
 
 ## 功能总览与维护
