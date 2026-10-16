@@ -411,14 +411,14 @@ def import_excel_template(context: str = Query("position")) -> StreamingResponse
     if context == "deal":
         sheets = [(
             "成交记录",
-            ["成交号*", "订单号", "标的代码*", "市场", "方向", "价格*", "数量*", "成交时间", "currency", "fee", "asset_type", "unit"],
-            [None, None, None, None, None, None, None, None, None, None, None, None],
+            ["成交号*", "订单号", "标的代码*", "市场", "方向", "价格*", "数量*", "成交时间", "currency", "fee", "asset_type", "unit", "标的名称"],
+            [None, None, None, None, None, None, None, None, None, None, None, None, None],
         )]
     else:
         sheets = [(
             "持仓快照",
-            ["标的代码*", "标的名称", "数量*", "当前价格*", "平均成本", "市场", "类型", "原币币种", "折算币种", "汇率", "仓位类型", "快照时间"],
-            [None, None, None, None, None, None, None, None, None, None, None, None],
+            ["标的代码*", "标的名称", "数量*", "当前价格*", "平均成本", "市场", "类型", "原币币种", "折算币种", "汇率", "仓位类型", "快照时间", "unit"],
+            [None, None, None, None, None, None, None, None, None, None, None, None, None],
         )]
 
     try:
@@ -859,7 +859,7 @@ def account_data_overview(account_id: str, db: Session = Depends(get_db)) -> dic
     ledger_enrolled = portfolio_service.enrolled(db, account_id)
     ledger_positions = portfolio_service.projection_positions(db, account_id, include_closed=True) if ledger_enrolled else []
     positions = [p for p in ledger_positions if p.quantity > 0] if ledger_enrolled else latest_positions(db, account_id)
-    position_codes = [item.code for item in positions if item.code and not item.missing_market_code]
+    position_codes = [item.code for item in positions if item.code and not item.missing_market_code and item.asset_type != "precious_metal"]
     markets = _account_data_markets(account, positions)
     latest_quote_time = None
     latest_news_time = None
@@ -983,6 +983,13 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    if request.asset_type == "precious_metal":
+        try:
+            checked = portfolio_service.asset({"code": request.code, "name": request.name, "market": request.market or "CN",
+                "currency": request.currency or "CNY", "asset_type": request.asset_type, "unit": request.unit})
+            request.code, request.market, request.unit = checked["code"], checked["market"], checked["unit"]
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     code = request.code.strip()
     if not code:
         raise HTTPException(status_code=400, detail="Position code is required")
@@ -1032,6 +1039,7 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
     raw_market = request.market.strip() or (code.split(".", 1)[0] if "." in code else "")
     position.market = normalize_market(raw_market)
     position.asset_type = request.asset_type.strip() or "stock"
+    position.unit = portfolio_service.asset_unit(position.asset_type, request.unit)
     position.quantity = request.quantity
     position.average_cost = request.average_cost
     position.cost_method = request.cost_method
@@ -1049,7 +1057,7 @@ def save_account_position(account_id: str, request: PositionSnapshotSaveRequest,
     position.layer_source = "user"
     position.layer_confidence = "高"
     position.layer_reason = "用户手动维护持仓快照"
-    position.missing_market_code = not bool(raw_market)
+    position.missing_market_code = position.asset_type == "precious_metal" or not bool(raw_market)
     position.snapshot_time = snapshot_time
     position.sync_id = f"manual_position_{account_id}"
     db.add(position)
@@ -1184,6 +1192,8 @@ def position_kline(
         items = [item for item in portfolio_service.projection_positions(db, account_id, include_closed=True) if item.code == code]
     if not items:
         raise HTTPException(status_code=404, detail="Position not found")
+    if items[0].asset_type == "precious_metal":
+        return {"code": code, "status": "missing", "message": "银行黄金使用手工银行报价，暂无证券 K 线", "items": []}
     if items[0].missing_market_code:
         return {"code": code, "status": "missing", "message": "该持仓缺少真实证券代码", "items": []}
     allowed_ktype = ktype if ktype in {"K_DAY", "K_WEEK", "K_MON"} else "K_DAY"
@@ -1503,6 +1513,7 @@ def _position_to_dict(item) -> dict:
         "name": item.name,
         "market": item.market,
         "asset_type": item.asset_type,
+        "unit": portfolio_service.asset_unit(item.asset_type, item.unit),
         "quantity": item.quantity,
         "current_price": item.current_price if not hasattr(item, "ledger_result") else float(item.ledger_result["price"]) if item.ledger_result["price"] is not None else None,
         "average_cost": item.average_cost if not hasattr(item, "ledger_result") else float(item.ledger_result["average_cost"]) if item.ledger_result["average_cost"] is not None else None,
@@ -1530,11 +1541,11 @@ def _aggregate_positions(
     base_currency: str = "",
     display_rates: dict[str, float] | None = None,
 ) -> list[dict]:
-    groups: dict[str, list] = {}
+    groups: dict[tuple[str, str, str], list] = {}
     for item in items:
-        groups.setdefault(item.code, []).append(item)
+        groups.setdefault((item.code, item.raw_currency, portfolio_service.asset_unit(item.asset_type, item.unit)), []).append(item)
     aggregated = []
-    for code, group in groups.items():
+    for (code, _, unit), group in groups.items():
         first = group[0]
         total_value = sum(_position_market_value_base(item, base_currency, display_rates) for item in group)
         total_quantity = sum(item.quantity for item in group)
@@ -1559,6 +1570,7 @@ def _aggregate_positions(
                 "name": first.name,
                 "market": first.market,
                 "asset_type": first.asset_type,
+                "unit": unit,
                 "quantity": total_quantity,
                 "current_price": first.current_price if not hasattr(first, "ledger_result") or first.ledger_result["price"] is not None else None,
                 "average_cost": cost_basis if all(i.cost_method == "average" for i in group) and total_quantity else None,

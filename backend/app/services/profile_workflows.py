@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.services.portfolio.ledger import asset_unit
 from app.database import SessionLocal
 from app.models import (
     AIWorkflowRun,
@@ -871,6 +872,7 @@ def _position_context(item: PositionSnapshot, quote: QuoteSummary | None, base_c
         "name": item.name,
         "market": item.market,
         "asset_type": item.asset_type,
+        "unit": asset_unit(item.asset_type, getattr(item, "unit", None)),
         "currency": base_currency,
         "source_currency": item.raw_currency or item.normalized_currency,
         "quantity": item.quantity,
@@ -981,7 +983,7 @@ def _sum_ratio(positions: list[dict[str, Any]], key: str, extra: list[dict[str, 
 
 def _distribution_label(key: str, value: str) -> str:
     if key == "asset_type":
-        return {"stock": "股票", "fund": "基金/ETF", "etf": "ETF", "cash": "现金"}.get(value.lower(), value)
+        return {"stock": "股票", "fund": "基金/ETF", "etf": "ETF", "cash": "现金", "precious_metal": "贵金属"}.get(value.lower(), value)
     return value
 
 
@@ -998,6 +1000,8 @@ def _theme_distribution(positions: list[dict[str, Any]], cash_ratio: float = 0) 
 
 
 def _theme_label(code: str, name: str, asset_type: str) -> str:
+    if asset_type == "precious_metal":
+        return "贵金属"
     text = f"{code} {name}".upper()
     if any(token in text for token in ("QQQ", "SPY", "VOO", "纳斯达克", "NASDAQ", "标普", "S&P")):
         return "宽基/成长ETF"

@@ -239,6 +239,16 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
             average_cost = _float(row.get("average_cost"))
             market = str(row.get("market") or _market_from_code(code)).strip().upper()
             asset_type = str(row.get("asset_type") or ("fund" if code.upper().startswith("FUND.") else "stock")).strip()
+            from app.services.portfolio.ledger import asset_unit
+            unit = asset_unit(asset_type, row.get("unit"))
+            if asset_type == "precious_metal":
+                from app.services.portfolio.service import asset
+                try:
+                    checked = asset({"code": code, "name": row.get("name"), "market": market, "currency": row.get("currency") or base_currency or "CNY", "asset_type": asset_type, "unit": unit})
+                    code = checked["code"]
+                except ValueError as exc:
+                    errors.append(f"持仓快照 第 {row_no} 行：{exc}")
+                    continue
             currency = str(row.get("currency") or base_currency or "CNY").strip().upper()
             normalized_currency = str(row.get("normalized_currency") or base_currency or currency).strip().upper()
             exchange_rate = _optional_float(row.get("exchange_rate_to_base")) or 1
@@ -255,6 +265,7 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
                     "name": str(row.get("name") or code).strip(),
                     "market": market,
                     "asset_type": asset_type,
+                    "unit": unit,
                     "quantity": quantity,
                     "average_cost": average_cost,
                     "current_price": current_price,
@@ -268,7 +279,7 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
                     "requested_position_layer": str(row.get("position_layer") or "").strip(),
                     "first_buy_time": _optional_datetime(row.get("first_buy_time")),
                     "last_trade_time": _optional_datetime(row.get("last_trade_time")),
-                    "missing_market_code": not _looks_like_market_code(code),
+                    "missing_market_code": asset_type == "precious_metal" or not _looks_like_market_code(code),
                     "snapshot_time": item_snapshot_time,
                 }
             )
@@ -295,13 +306,14 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
                     "deal_time": _parse_datetime_value(row.get("deal_time")),
                     "market": str(row.get("market") or "").strip().upper(),
                     "raw_payload": {
+                        "name": str(row.get("name") or ""),
                         "amount": _optional_float(row.get("amount")),
                         "currency": str(row.get("currency") or ""),
                         "fee": _optional_float(row.get("fee")),
                         "commission": _optional_float(row.get("commission")),
                         "tax": _optional_float(row.get("tax")),
                         "asset_type": str(row.get("asset_type") or "stock"),
-                        "unit": str(row.get("unit") or ("fund_unit" if row.get("asset_type") == "fund" else "share")),
+                        "unit": str(row.get("unit") or ""),
                         "raw_note": str(row.get("raw_note") or ""),
                     },
                 }

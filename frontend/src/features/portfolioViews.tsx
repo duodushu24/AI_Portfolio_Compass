@@ -1,3 +1,4 @@
+import { assetOptions, assetUnit, goldCode, priceUnit, unitLabel } from "./portfolio/assets";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode, ThHTMLAttributes } from "react";
 import { Alert, Button, Checkbox, Descriptions, Drawer, Dropdown, Empty as ArcoEmpty, Form, Input, Menu, Modal, Select, Spin, Table, Tabs, Tag, Upload } from "@arco-design/web-react";
@@ -385,7 +386,7 @@ export function Home({
               </div>
               <Table
                 className="arco-data-table pro-table top-position-table"
-                rowKey={(position: Position) => `${position.account_id}-${position.code}`}
+                rowKey={(position: Position) => `${position.account_id}-${position.code}-${position.raw_currency}-${position.unit}`}
                 data={focusPositions}
                 size="middle"
                 hover
@@ -966,7 +967,7 @@ export function Positions({ positions, layer, setLayer, accounts, selectedAccoun
       return matchesKeyword && matchesMarket && matchesPnl;
     });
   }, [keyword, market, pnl, positions]);
-  const positionRowKey = (item: Position) => `${item.account_id}-${item.code}`;
+  const positionRowKey = (item: Position) => `${item.account_id}-${item.code}-${item.raw_currency}-${item.unit}`;
   const positionTable = useResizableTableColumns({
     name: 170,
     code: 140,
@@ -1034,7 +1035,7 @@ export function Positions({ positions, layer, setLayer, accounts, selectedAccoun
             dataIndex: "code",
             ...positionTable.columnProps("code"),
             sorter: (a: Position, b: Position) => a.code.localeCompare(b.code),
-            render: (_value, item: Position) => `${item.code}${item.missing_market_code ? " · 简称展示" : ""}`,
+            render: (_value, item: Position) => `${item.code}${item.asset_type === "precious_metal" ? " · 银行产品" : item.missing_market_code ? " · 简称展示" : ""}`,
           },
           {
             title: "账户",
@@ -1095,7 +1096,7 @@ export function Positions({ positions, layer, setLayer, accounts, selectedAccoun
       />
       <div className="mobile-position-list">
         {filteredPositions.map((item) => (
-          <button className="mobile-position-card" key={`${item.account_id}-${item.code}`} onClick={() => onOpenCode(item.code)}>
+          <button className="mobile-position-card" key={`${item.account_id}-${item.code}-${item.raw_currency}-${item.unit}`} onClick={() => onOpenCode(item.code)}>
             <span>
               <strong>{item.name || item.code}</strong>
               <small>{item.code} · {item.position_layer}</small>
@@ -2757,8 +2758,8 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
               </div>
             </div>
             <div className="detail-stat-grid">
-              <Metric label="当前价" value={formatPrice(detail.position.current_price)} />
-              <Metric label="成本价" value={!detail.position.quantity ? "—" : detail.position.cost_method === "unknown" ? "待确认" : formatPrice(detail.position.average_cost)} />
+              <Metric label="当前价" value={`${formatPrice(detail.position.current_price)} ${priceUnit(detail.position.raw_currency, detail.position.unit || assetUnit(detail.position.asset_type))}`} />
+              <Metric label="成本价" value={!detail.position.quantity ? "—" : detail.position.cost_method === "unknown" ? "待确认" : `${formatPrice(detail.position.average_cost)} ${priceUnit(detail.position.raw_currency, detail.position.unit || assetUnit(detail.position.asset_type))}`} />
               <Metric label="账户币种市值" value={formatMoney(detail.position.normalized_market_value, detail.position.normalized_currency)} />
               <Metric label="仓位" value={formatPercent(detail.position.position_weight)} />
               <Metric label="持仓收益率" value={!detail.position.quantity || detail.position.cost_method === "unknown" ? "—" : formatPercent(detail.position.profit_loss_ratio)} />
@@ -2773,7 +2774,7 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
               ]}
             />
             <p className="reason">{exchangeRateLabel(detail.position)}</p>
-            {detail.position.missing_market_code ? <p className="warning">该持仓缺少真实证券代码，当前按简称展示，不自动拉取行情和新闻。</p> : null}
+            {detail.position.asset_type === "precious_metal" ? <p className="metadata-note">银行黄金按克记录，使用银行报价或展示市值；请在账户记账中更新，不自动拉取证券行情。</p> : detail.position.missing_market_code ? <p className="warning">该持仓缺少真实证券代码，当前按简称展示，不自动拉取行情和新闻。</p> : null}
             <p className="reason">{detail.position.layer_reason}</p>
           </section>
           <PortfolioPanel accountId={selectedAccount} code={detail.position.code} maskAssets={assetMaskEnabled} />
@@ -2797,7 +2798,7 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
               <Tabs.TabPane key="accounts" title="账户分布">
                 <Table
                   className="arco-data-table pro-table"
-                  rowKey={(item: Position) => `${item.account_id}-${item.code}`}
+                  rowKey={(item: Position) => `${item.account_id}-${item.code}-${item.raw_currency}-${item.unit}`}
                   data={detail.account_positions ?? []}
                   size="middle"
                   hover
@@ -2810,7 +2811,7 @@ export function Detail({ detail, selectedAccount, onSaveLayer, onGenerateAi, gen
                   columns={[
                     { title: "账户", dataIndex: "account_id", ...accountDistributionTable.columnProps("account_id"), sorter: (a: Position, b: Position) => a.account_id.localeCompare(b.account_id), render: (_value, item: Position) => <span className="table-main-cell"><strong>{item.account_id}</strong></span> },
                     { title: "标的", dataIndex: "name", ...accountDistributionTable.columnProps("name"), sorter: (a: Position, b: Position) => (a.name || a.code).localeCompare(b.name || b.code) },
-                    { title: "数量", dataIndex: "quantity", ...accountDistributionTable.columnProps("quantity"), sorter: (a: Position, b: Position) => a.quantity - b.quantity, render: (value: number) => formatPrice(value) },
+                    { title: "数量", dataIndex: "quantity", ...accountDistributionTable.columnProps("quantity"), sorter: (a: Position, b: Position) => a.quantity - b.quantity, render: (value: number, p: Position) => `${formatPrice(value)} ${unitLabel(p.unit || assetUnit(p.asset_type))}` },
                     { title: "市值", dataIndex: "normalized_market_value", ...accountDistributionTable.columnProps("normalized_market_value"), sorter: (a: Position, b: Position) => a.normalized_market_value - b.normalized_market_value, render: (_value, item: Position) => formatMoney(item.normalized_market_value, item.normalized_currency) },
                     { title: "仓位", dataIndex: "position_weight", ...accountDistributionTable.columnProps("position_weight"), sorter: (a: Position, b: Position) => a.position_weight - b.position_weight, render: (value: number) => formatPercent(value) },
                   ]}
@@ -3868,13 +3869,7 @@ type PositionSnapshotForm = {
   snapshot_time: string;
 };
 
-const assetTypeOptions = [
-  { value: "stock", label: "股票" },
-  { value: "fund", label: "基金" },
-  { value: "option", label: "期权" },
-  { value: "bond", label: "债券" },
-  { value: "crypto", label: "数字资产" },
-];
+const assetTypeOptions = [...assetOptions, { value: "option", label: "期权" }, { value: "crypto", label: "数字资产" }];
 
 export function normalizePositionMarket(value: string) {
   const market = value.trim().toUpperCase();
@@ -3956,6 +3951,7 @@ export function inferMarketFromCode(code: string) {
 
 export function inferAssetTypeFromCode(code: string, fallback = "stock") {
   const normalized = code.trim().toUpperCase();
+  if (normalized.startsWith("CN.GOLD.")) return "precious_metal";
   if (normalized.startsWith("FUND.")) return "fund";
   return fallback || "stock";
 }
@@ -3973,6 +3969,7 @@ export function positionFormToPayload(form: PositionSnapshotForm, original?: Pos
     name: form.name.trim(),
     market: normalizePositionMarket(form.market) || inferMarketFromCode(form.code),
     asset_type: form.asset_type.trim() || inferAssetTypeFromCode(form.code),
+    unit: assetUnit(form.asset_type),
     quantity,
     average_cost: averageCost,
     current_price: currentPrice,
@@ -4040,12 +4037,12 @@ export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = 
             render: (value: string) => value || "-",
           },
           { title: "类型", dataIndex: "asset_type", ...accountPositionsTable.columnProps("asset_type"), sorter: (a: Position, b: Position) => (a.asset_type || "").localeCompare(b.asset_type || ""), render: (value: string) => value || "-" },
-          { title: "数量", dataIndex: "quantity", ...accountPositionsTable.columnProps("quantity"), sorter: (a: Position, b: Position) => a.quantity - b.quantity, render: (value: number) => formatPrice(value) },
+          { title: "数量", dataIndex: "quantity", ...accountPositionsTable.columnProps("quantity"), sorter: (a: Position, b: Position) => a.quantity - b.quantity, render: (value: number, p: Position) => `${formatPrice(value)} ${unitLabel(p.unit || assetUnit(p.asset_type))}` },
           {
             title: "成本/现价",
             dataIndex: "average_cost",
             ...accountPositionsTable.columnProps("average_cost"),
-            render: (_value, item: Position) => `${formatPrice(item.average_cost)} / ${formatPrice(item.current_price)}`,
+            render: (_value, item: Position) => `${formatPrice(item.average_cost)} / ${formatPrice(item.current_price)} ${priceUnit(item.raw_currency, item.unit || assetUnit(item.asset_type))}`,
           },
           {
             title: "市值",
@@ -4157,11 +4154,11 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
         }} options={[{ value: "new", label: "记录新状态（保留历史）" }, { value: "correction", label: "纠正这条旧记录" }]} /> : null}
         <p className="metadata-note">清仓请记录数量 0。记录新状态后，请按当时价格保存收益观察点；成交记录分别维护。</p>
         <Form layout="vertical" className="account-form-grid arco-form-grid position-form-grid compact-position-form">
-          <Form.Item label="标的代码" required><Input disabled={saveMode === "correction"} autoFocus value={form.code} placeholder="例如 US.AAPL / FUND.006479" onChange={updateCode} /></Form.Item>
+          <Form.Item label="标的代码" required><Input disabled={saveMode === "correction" || form.asset_type === "precious_metal"} autoFocus value={form.code} placeholder="例如 US.AAPL / FUND.006479" onChange={updateCode} /></Form.Item>
           <Form.Item label="标的名称"><Input value={form.name} placeholder="可不填，默认使用代码" onChange={(value) => setForm({ ...form, name: value })} /></Form.Item>
-          <Form.Item label="数量" required><Input type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} /></Form.Item>
-          <Form.Item label="当前价格" required><Input type="number" value={form.current_price} onChange={(value) => setForm({ ...form, current_price: value })} /></Form.Item>
-          <Form.Item label="平均成本"><Input type="number" value={form.average_cost} placeholder="可选，用于计算盈亏" onChange={(value) => setForm({ ...form, average_cost: value })} /></Form.Item>
+          <Form.Item label={`数量（${unitLabel(assetUnit(form.asset_type))}）`} required><Input type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} /></Form.Item>
+          <Form.Item label={`当前价格（${priceUnit(form.currency, assetUnit(form.asset_type))}）`} required><Input type="number" value={form.current_price} onChange={(value) => setForm({ ...form, current_price: value })} /></Form.Item>
+          <Form.Item label={`平均成本（${priceUnit(form.currency, assetUnit(form.asset_type))}）`}><Input type="number" value={form.average_cost} placeholder="可选，用于计算盈亏" onChange={(value) => setForm({ ...form, average_cost: value })} /></Form.Item>
           <Form.Item label="成本口径"><Checkbox checked={costConfirmed} onChange={setCostConfirmed}>已核对为平均成本</Checkbox></Form.Item>
           {currency !== "CNY" ? <Form.Item label="剩余持仓人民币成本（可选）"><Input type="number" value={cnyCost} onChange={setCnyCost} placeholder="按取得/期初核对成本填写，非当前汇率折算" /></Form.Item> : null}
         </Form>
@@ -4195,7 +4192,7 @@ export function PositionSnapshotModal({ account, position, onClose, onSaved, set
                 onChange={(value) => setForm({ ...form, market: value })}
               />
             </Form.Item>
-            <Form.Item label="类型"><StyledSelect value={form.asset_type} ariaLabel="选择资产类型" options={assetTypeOptions} onChange={(value) => setForm({ ...form, asset_type: value })} /></Form.Item>
+            <Form.Item label="类型"><StyledSelect value={form.asset_type} ariaLabel="选择资产类型" options={assetTypeOptions} onChange={(value) => setForm({ ...form, asset_type: value, ...(value === "precious_metal" && form.asset_type !== value ? { code: goldCode(), market: "CN", currency: "CNY", normalized_currency: "CNY" } : {}) })} /></Form.Item>
             <Form.Item label="原币币种"><Input value={form.currency} onChange={(value) => setForm({ ...form, currency: value.toUpperCase() })} /></Form.Item>
             <Form.Item label="折算币种"><Input value={form.normalized_currency} onChange={(value) => setForm({ ...form, normalized_currency: value.toUpperCase() })} /></Form.Item>
             <Form.Item label="汇率"><Input type="number" value={form.exchange_rate_to_base} placeholder="可选，原币 -> 折算币种" onChange={(value) => setForm({ ...form, exchange_rate_to_base: value })} /></Form.Item>
@@ -4440,7 +4437,7 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
       {preview.positions.length ? (
         <Table
           className="arco-data-table pro-table import-preview-table"
-          rowKey={(item: Position) => `${item.account_id}-${item.code}`}
+          rowKey={(item: Position) => `${item.account_id}-${item.code}-${item.raw_currency}-${item.unit}`}
           data={preview.positions.slice(0, 8)}
           size="middle"
           hover
@@ -4459,7 +4456,7 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
               render: (_value, item: Position) => <span className="table-main-cell"><strong>{item.name || item.code}</strong></span>,
             },
             { title: "代码", dataIndex: "code", ...importPreviewTable.columnProps("code"), sorter: (a: Position, b: Position) => a.code.localeCompare(b.code) },
-            { title: "数量", dataIndex: "quantity", ...importPreviewTable.columnProps("quantity"), sorter: (a: Position, b: Position) => a.quantity - b.quantity, render: (value: number) => formatPrice(value) },
+            { title: "数量", dataIndex: "quantity", ...importPreviewTable.columnProps("quantity"), sorter: (a: Position, b: Position) => a.quantity - b.quantity, render: (value: number, p: Position) => `${formatPrice(value)} ${unitLabel(p.unit || assetUnit(p.asset_type))}` },
             { title: "现价", dataIndex: "current_price", ...importPreviewTable.columnProps("current_price"), sorter: (a: Position, b: Position) => a.current_price - b.current_price, render: (value: number) => formatPrice(value) },
             {
               title: "市值",
@@ -4472,7 +4469,7 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
               title: "状态",
               dataIndex: "missing_market_code",
               ...importPreviewTable.columnProps("missing_market_code"),
-              render: (value: boolean) => <Tag color={value ? "orange" : "green"}>{value ? "需复核代码" : "可识别"}</Tag>,
+              render: (value: boolean, p: Position) => p.asset_type === "precious_metal" ? <Tag>银行手工估值</Tag> : <Tag color={value ? "orange" : "green"}>{value ? "需复核代码" : "可识别"}</Tag>,
             },
           ]}
         />
@@ -5040,6 +5037,7 @@ export function themeExposureFromArtifacts(artifacts?: WorkflowArtifact[]) {
 export function themeLabel(position: Position) {
   const text = `${position.code || ""} ${position.name || ""}`.toUpperCase();
   const assetType = `${position.asset_type || ""}`.toUpperCase();
+  if (assetType === "PRECIOUS_METAL") return "贵金属";
   if (["QQQ", "SPY", "VOO", "纳斯达克", "NASDAQ", "标普", "S&P"].some((token) => text.includes(token))) return "宽基/成长ETF";
   if (["黄金", "GOLD", "GLD", "白银", "SILVER"].some((token) => text.includes(token))) return "贵金属";
   if (["债券", "BOND", "SHY", "BIL", "TLT", "IEF"].some((token) => text.includes(token))) return "债券/现金管理";

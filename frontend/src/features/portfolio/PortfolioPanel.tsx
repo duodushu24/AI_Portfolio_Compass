@@ -1,3 +1,4 @@
+import { assetUnit, priceUnit, quoteKindLabel, unitLabel } from "./assets";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Drawer, Empty, Select, Table, Tag } from "@arco-design/web-react";
 import { portfolioApi } from "./api";
@@ -39,13 +40,13 @@ export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = 
   const money = (v: string | null) => maskAssets ? "••••" : numeric(v);
   return <Table tableLayoutFixed rowKey={a => `${a.account_id}:${a.code}:${a.currency}:${a.unit}`} data={assets} pagination={{ pageSize: 8 }} scroll={{ x: 1510 }} columns={[
     { title: "账户 / 标的", width: 220, render: (_, a: Asset) => <div className="portfolio-asset-cell"><small>{accountLabel(a.account_id, accountNames)}</small>{onOpen ? <Button className="portfolio-asset-link" type="text" onClick={() => onOpen(a.code)}>{a.name || a.code}</Button> : <strong>{a.name || a.code}</strong>}{a.name && a.name !== a.code && <small>{a.code}</small>}</div> },
-    { title: "状态 / 数量", width: 160, render: (_, a: Asset) => Number(a.quantity) ? <div className="portfolio-asset-cell"><span>{money(a.quantity)}</span><small>第 {a.cycle} 次持有</small></div> : "已清仓" },
-    { title: "平均成本 / 现价", width: 210, render: (_, a: Asset) => `${money(a.average_cost)} / ${money(a.price)} ${a.currency}` },
+    { title: "状态 / 数量", width: 160, render: (_, a: Asset) => Number(a.quantity) ? <div className="portfolio-asset-cell"><span>{money(a.quantity)} {unitLabel(a.unit)}</span><small>第 {a.cycle} 次持有</small></div> : "已清仓" },
+    { title: "平均成本 / 现价", width: 210, render: (_, a: Asset) => `${money(a.average_cost)} / ${money(a.price)} ${priceUnit(a.currency, a.unit)}` },
     { title: "持仓 / 清仓收益率", width: 160, render: (_, a: Asset) => <div className="portfolio-asset-cell"><span>{percent(Number(a.quantity) ? a.holding_return : a.closed_return)}</span>{!Number(a.quantity) && <small>最近一次清仓</small>}</div> },
     { title: "浮动 / 累计已实现盈亏", width: 220, render: (_, a: Asset) => `${money(a.floating)} / ${money(a.realized)} ${a.currency}` },
     { title: "市值 CNY", width: 150, render: (_, a: Asset) => money(a.market_value_cny) },
     { title: "仓位", width: 100, render: (_, a: Asset) => percent(a.position_weight) },
-    { title: "报价依据", width: 290, render: (_, a: Asset) => a.quote ? `${timeLabel(a.quote.at)} · ${a.quote.price_kind === "nav" ? "正式净值" : a.quote.price_kind === "estimate" ? "估算" : "价格"} · ${a.quote.source}` : "缺价" },
+    { title: "报价依据", width: 290, render: (_, a: Asset) => a.quote ? `${timeLabel(a.quote.at)} · ${quoteKindLabel(a.quote.price_kind)} · ${a.quote.source}` : "缺价" },
   ]} />;
 }
 
@@ -74,7 +75,7 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
       { title: "清仓收益额", render: (_, r) => `${money(r.realized)} ${r.currency}` },
       { title: "清仓收益率", render: (_, r) => percent(r.return) },
     ]} /><small>清仓收益率＝该持有阶段已实现盈亏合计 ÷ 卖出结转成本合计，包含分批卖出；不是年化收益。未知或零成本不计算收益率。</small></>}
-    {code && <Table rowKey={r => `${r.category}:${r.id}`} data={data?.records ?? []} pagination={{ pageSize: 8 }} columns={[{ title: "时间", dataIndex: "effective_at", render: timeLabel }, { title: "事项", render: (_, r) => `${accountName(r.account_id)} · ${labels[r.kind]}${r.is_void ? "（已作废）" : ""}` }, { title: "数量 / 价格 / 费用", render: (_, r) => maskAssets ? "••••" : `${r.data.side === "BUY" ? "买入" : r.data.side === "SELL" ? "卖出" : ""} ${r.data.quantity ?? ""} / ${r.data.price ?? ""} / ${r.data.fees ?? ""}` }]} />}
+    {code && <Table rowKey={r => `${r.category}:${r.id}`} data={data?.records ?? []} pagination={{ pageSize: 8 }} columns={[{ title: "时间", dataIndex: "effective_at", render: timeLabel }, { title: "事项", render: (_, r) => `${accountName(r.account_id)} · ${labels[r.kind]}${r.is_void ? "（已作废）" : ""}` }, { title: "数量 / 价格 / 费用", render: (_, r) => maskAssets ? "••••" : `${r.data.side === "BUY" ? "买入" : r.data.side === "SELL" ? "卖出" : ""} ${r.data.quantity ?? ""} ${r.data.quantity != null ? unitLabel(String(r.data.unit || assetUnit(String(r.data.asset_type || "stock")))) : ""} / ${r.data.price ?? ""} ${r.data.price != null ? priceUnit(String(r.data.currency), String(r.data.unit || assetUnit(String(r.data.asset_type || "stock")))) : ""} / ${r.data.fees ?? ""}` }]} />}
     {!code && <p className="metadata-note">未知历史人民币成本不以当前汇率补算。报价沿用情况与资金边界估算可查看每个点。</p>}
     {selected && <Drawer title={`${labels[selected.event_type]} · ${timeLabel(selected.observed_at)}`} visible width={1000} footer={null} onCancel={() => setSelected(null)}><div className="stack">
       <p>总资产 {money(selected.total_assets)} CNY · 净值 {numeric(selected.nav)} · 份额 {money(selected.units)} · 收益率 {percent(selected.cumulative_return)} · 累计账户盈亏 {money(selected.profit)} CNY</p>

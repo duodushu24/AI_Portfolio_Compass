@@ -92,7 +92,7 @@ def pull_account_market_data(db: Session, account: Account, data_type: str) -> d
     normalized_type = str(data_type or "").strip().lower()
     if normalized_type not in {"quote", "news"}:
         raise ValueError("Unsupported data type")
-    positions = [item for item in latest_positions(db, account.account_id) if item.code and not item.missing_market_code]
+    positions = [item for item in latest_positions(db, account.account_id) if item.code and not item.missing_market_code and item.asset_type != "precious_metal"]
     if not positions:
         return {"status": "empty", "message": "当前账户暂无可拉取的持仓标的", "inserted_count": 0, "updated_count": 0}
 
@@ -101,7 +101,7 @@ def pull_account_market_data(db: Session, account: Account, data_type: str) -> d
     if normalized_type == "quote":
         rows = adapter.fetch_quote_summaries([item.code for item in positions])
         inserted = _persist_quote_rows(db, sync_id, rows)
-        all_position_codes = sorted({item.code for item in latest_positions(db, "all") if item.code and not item.missing_market_code})
+        all_position_codes = sorted({item.code for item in latest_positions(db, "all") if item.code and not item.missing_market_code and item.asset_type != "precious_metal"})
         kline_rows, kline_errors = adapter.fetch_kline_snapshot_rows(all_position_codes)
         kline_inserted = _persist_kline_rows(db, sync_id, kline_rows)
         _mark_account_pull_states(db, account, positions, "quote", rows, "")
@@ -256,6 +256,13 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
         from app.services.holding_history import utc_naive
         payload["snapshot_time"] = utc_naive(payload["snapshot_time"])
         payload["market"] = normalize_market(payload["market"])
+        from app.services.portfolio.ledger import asset_unit
+        payload["unit"] = asset_unit(payload["asset_type"], payload.get("unit"))
+        if payload["asset_type"] == "precious_metal":
+            from app.services.portfolio.service import asset
+            checked = asset({**payload, "currency": payload.get("raw_currency")})
+            payload["code"], payload["unit"] = checked["code"], checked["unit"]
+            payload["missing_market_code"] = True
         batch = next((b for b in batch_by_scope.values() if b.account_id == payload["account_id"]
                       and (not b.market or b.market == payload["market"])
                       and b.observed_at == payload["snapshot_time"]), None)
@@ -300,7 +307,7 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
                 PositionSnapshot.code == payload["code"], PositionSnapshot.snapshot_time == payload["snapshot_time"]))
         if existing_position:
             same_fact = all(getattr(existing_position, key) == payload.get(key) for key in (
-                "quantity", "average_cost", "current_price", "raw_currency", "market", "asset_type"))
+                "quantity", "average_cost", "current_price", "raw_currency", "market", "asset_type")) and asset_unit(existing_position.asset_type, existing_position.unit) == payload["unit"]
             if not same_fact or existing_position.is_void:
                 raise ValueError("该账户标的在相同时点已有不同记录；请纠错或选择新的实际时点")
             existing_position.batch_id = batch.id
@@ -330,8 +337,15 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
             fees = raw.get("fee")
             if fees in (None, ""):
                 fees = number(raw.get("commission") or 0) + number(raw.get("tax") or 0)
+            name = raw.get("name") or ""
+            if raw.get("asset_type") == "precious_metal" and not name:
+                known = next((p for p in portfolio_service.calculate(db, payload["account_id"])["current"]["positions"] if p["code"] == payload["code"]), None)
+                source = db.scalar(select(PositionSnapshot).where(PositionSnapshot.account_id == payload["account_id"],
+                    PositionSnapshot.code == payload["code"]).order_by(PositionSnapshot.snapshot_time.desc()))
+                name = known["name"] if known else source.name if source else ""
             portfolio_service.save_trade(db, {**payload, "effective_at": payload["deal_time"], "currency": raw["currency"],
-                "fees": fees, "asset_type": raw.get("asset_type") or "stock", "unit": raw.get("unit") or "share",
+                "name": name,
+                "fees": fees, "asset_type": raw.get("asset_type") or "stock", "unit": raw.get("unit") or "",
                 "source": sync_id}, commit=False)
             inserted += 1
             continue

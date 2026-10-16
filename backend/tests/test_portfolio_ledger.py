@@ -16,6 +16,10 @@ from app.services.sync import latest_positions, latest_account_snapshots
 T = datetime(2026, 10, 1, 8)
 
 
+def gold(**changes):
+    return asset(code="CN.GOLD.BANK_A", name="虚构甲银行积存金", asset_type="precious_metal", unit="gram", **changes)
+
+
 def when(days=0):
     return (T + timedelta(days=days)).isoformat() + "Z"
 
@@ -561,3 +565,142 @@ def test_history_mismatch_requires_confirmation_and_invalid_cash_rolls_back(reco
         assert db.get(PortfolioOpening, "test-a").effective_at == T + timedelta(days=3)
         assert not list(db.scalars(select(Deal))) and not list(db.scalars(select(PortfolioEvent)))
     assert client.post(endpoint, json=history_payload(confirm_differences=True)).status_code == 200
+
+
+def test_gold_grams_cash_cost_fees_valuation_and_closed_return(records):
+    client, sessions = records
+    with sessions() as db:
+        opening(db, cash="10000")
+    buy = {**gold(), "account_id": "test-a", "effective_at": when(1), "side": "BUY", "quantity": "10.125", "price": "600", "fees": "10.125"}
+    response = client.post("/api/portfolio/trades", json=buy)
+    assert response.status_code == 200, response.text
+    trade_id = response.json()["id"]
+    with sessions() as db:
+        p = current(db)["positions"][0]
+        assert p["unit"] == "gram" and p["average_cost"] == 601
+        assert current(db)["cash_value"] == D("3914.875")
+        trade(db, "SELL", "4.125", "650", day=2, fees="5", **gold())
+        event(db, "valuation", 3, prices=[{**gold(), "market_value": "3900", "price_kind": "bank_value", "at": when(3), "source": "虚构银行展示市值"}])
+        p = current(db)["positions"][0]
+        assert p["quantity"] == 6 and p["cost"] == 3606 and p["realized"] == D("197.125")
+        assert p["price"] == 650 and p["floating"] == 294 and p["quote"]["price_kind"] == "bank_value"
+        # A securities adapter cannot overwrite bank product quotes.
+        s.ingest_quotes(db, [{"code": gold()["code"], "quote_time": T + timedelta(days=4), "current_price": 1}], "fake-stock-provider")
+        assert current(db)["positions"][0]["price"] == 650
+        trade(db, "SELL", "6", "650", day=4, **gold())
+        p = current(db)["positions"][0]
+        assert p["quantity"] == 0 and p["realized"] == D("491.125")
+        assert p["closed_return"] == D("491.125") / D("6085.125")
+    payload = client.get("/api/portfolio/overview?account_id=test-a").json()
+    assert payload["current"]["positions"][0]["unit"] == "gram"
+    assert any(r["id"] == trade_id and r["kind"] == "trade" for r in payload["records"])
+    kline = client.get(f"/api/positions/kline/{gold()['code']}?account_id=test-a")
+    assert kline.status_code == 200 and kline.json()["items"] == []
+    assert "银行黄金" in kline.json()["message"]
+
+
+def test_gold_products_have_independent_quotes_and_no_live_pull(records, monkeypatch):
+    _, sessions = records
+    from app.main import _aggregate_positions
+    from app.services.sync import pull_account_market_data
+    from app.adapters.futu_adapter import FutuReadOnlyAdapter
+    def forbidden(*args, **kwargs):
+        raise AssertionError("bank products must not call securities adapters")
+    monkeypatch.setattr(FutuReadOnlyAdapter, "fetch_quote_summaries", forbidden)
+    with sessions() as db:
+        a = s.asset({**gold(), "code": ""})
+        b = s.asset({**gold(), "code": "", "name": "虚构乙银行账户金"})
+        assert a["code"] != b["code"]
+        opening(db, cash="0", positions=[{**a, "quantity": "2", "average_cost": "600", "price": "620"}])
+        opening(db, "test-b", cash="0", positions=[{**b, "quantity": "3", "average_cost": "610", "price": "630"}])
+        event(db, "valuation", 2, prices=[{**a, "price": "650", "price_kind": "redemption", "at": when(2), "source": "虚构甲银行回购价"}])
+        positions = {p["code"]: p for p in current(db)["positions"]}
+        assert positions[a["code"]]["price"] == 650 and positions[b["code"]]["price"] == 630
+        rows = s.projection_positions(db)
+        assert all(p.unit == "gram" and p.missing_market_code for p in rows)
+        assert {p["unit"] for p in _aggregate_positions(rows)} == {"gram"}
+        assert pull_account_market_data(db, db.get(Account, "test-a"), "quote")["status"] == "empty"
+
+
+def test_gold_unit_validation_and_source_round_trip(records):
+    client, sessions = records
+    for changes in ({"unit": "share"}, {"currency": "USD"}, {"market": "US"}, {"code": "CN.TEST"}):
+        with pytest.raises(ValueError):
+            s.asset({**gold(), **changes})
+    assert s.asset({**asset(), "asset_type": "fund", "unit": ""})["unit"] == "fund_unit"
+    response = client.post("/api/data/accounts/test-a/positions", json={**gold(), "quantity": 2.125, "average_cost": 600,
+        "current_price": 650, "snapshot_time": when(0), "cost_method": "average"})
+    assert response.status_code == 200, response.text
+    with sessions() as db:
+        draft = s.source_opening(db, "test-a")
+        assert draft["positions"][0]["unit"] == "gram"
+        # Explicit units from a source survive building the opening and reconciliation.
+        draft["effective_at"] = when(0)
+        s.save_opening(db, "test-a", draft)
+        assert s.reconcile(db, "test-a") == []
+        p = s.projection_positions(db, "test-a")[0]
+        from app.main import _position_to_dict
+        assert _position_to_dict(p)["unit"] == "gram"
+
+
+def test_gold_excel_preview_confirm_source_and_trade_import(records):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from app.services.imports import preview_import, confirm_import
+    _, sessions = records
+    def workbook_bytes(sheet, rows):
+        book = Workbook(); book.active.title = sheet
+        for row in rows: book.active.append(row)
+        buffer = BytesIO(); book.save(buffer)
+        return buffer.getvalue()
+    content = workbook_bytes("持仓快照", [
+        ["code", "name", "quantity", "current_price", "average_cost", "market", "asset_type", "currency", "unit", "snapshot_time"],
+        ["CN.GOLD.IMPORT", "虚构银行积存金", 1.125, 650, 600, "CN", "precious_metal", "CNY", "gram", when(0)]])
+    preview = preview_import("excel", "synthetic.xlsx", content, "test-a", "CNY")
+    assert preview["can_confirm"] and preview["positions"][0]["unit"] == "gram"
+    with sessions() as db:
+        confirm_import(db, preview)
+        assert s.source_opening(db, "test-a")["positions"][0]["unit"] == "gram"
+        opening(db, cash="2000")
+        deals = workbook_bytes("成交记录", [
+            ["deal_id", "code", "side", "price", "quantity", "deal_time", "market", "currency", "fee", "asset_type", "unit"],
+            ["gold-buy-1", "CN.GOLD.IMPORT", "BUY", 600, 1.125, when(1), "CN", "CNY", 1, "precious_metal", "gram"]])
+        trade_preview = preview_import("excel", "synthetic-deals.xlsx", deals, "test-a", "CNY")
+        assert trade_preview["can_confirm"], trade_preview["errors"]
+        confirm_import(db, trade_preview)
+        p = current(db)["positions"][0]
+        assert p["quantity"] == D("1.125") and p["unit"] == "gram" and p["cost"] == 676
+
+
+def test_unit_column_upgrade_preserves_legacy_rows(monkeypatch):
+    from sqlalchemy import text
+    import app.database as database
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("create table position_snapshots (id integer primary key, asset_type varchar, quantity float)"))
+        conn.execute(text("insert into position_snapshots values (1, 'fund', 12.3456)"))
+    monkeypatch.setattr(database, "engine", engine)
+    database._ensure_sqlite_columns()
+    with engine.connect() as conn:
+        row = conn.execute(text("select asset_type, quantity, unit from position_snapshots")).one()
+        assert tuple(row) == ("fund", 12.3456, "")
+        assert s.asset_unit(row.asset_type, row.unit) == "fund_unit"
+    engine.dispose()
+
+
+def test_gold_backfill_and_trade_correction_replay(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, day=3, cash="799.25", positions=[{**gold(), "quantity": "2.125", "average_cost": "600", "price": "650"}])
+        payload = {"opening": {"effective_at": when(0), "cash": {"CNY": "2074.25"}},
+            "records": [{"kind": "trade", "effective_at": when(1), "data": {**gold(), "side": "BUY", "quantity": "2.125", "price": "600"}}]}
+        preview = s.rebuild_history(db, "test-a", payload, preview=True)
+        assert preview["differences"] == []
+        assert db.get(PortfolioOpening, "test-a").effective_at == T + timedelta(days=3)
+        s.rebuild_history(db, "test-a", payload)
+        p = current(db)["positions"][0]
+        assert p["quantity"] == D("2.125") and p["floating"] == D("106.25") and p["unit"] == "gram"
+        row = db.scalar(select(Deal))
+        s.save_trade(db, {**gold(), "account_id": "test-a", "effective_at": when(1), "side": "BUY", "quantity": "2.125", "price": "600", "fees": "2.125"}, row.id)
+        assert current(db)["positions"][0]["average_cost"] == 601
+        assert current(db)["cash_value"] == D("797.125")

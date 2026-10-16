@@ -5,7 +5,13 @@ from decimal import Decimal, InvalidOperation
 
 ZERO = Decimal(0)
 CURRENCIES = {"CNY", "HKD", "USD"}
-ASSETS = {"stock", "etf", "fund", "bond", "leveraged_etf"}
+ASSET_UNITS = {"stock": "share", "etf": "share", "fund": "fund_unit", "bond": "share", "leveraged_etf": "share", "precious_metal": "gram"}
+ASSETS = set(ASSET_UNITS)
+
+
+def asset_unit(asset_type, unit=None):
+    """Explicit source units win; old securities retain their historical defaults."""
+    return unit or ASSET_UNITS.get(asset_type, "share")
 
 
 def number(value, *, minimum=None) -> Decimal:
@@ -63,7 +69,7 @@ class Ledger:
         book = self.accounts[account_id]
         k = key(data)
         if any(p["code"] == data["code"] and p["currency"] == data["currency"] and p["unit"] != data["unit"] for p in book["positions"].values()):
-            raise ValueError("同一标的数量单位与期初/已有账目不一致，请核对股票数量或基金份额")
+            raise ValueError("同一标的数量单位与期初/已有账目不一致，请核对股、份或克")
         p = book["positions"].get(k)
         if p is None:
             p = {**deepcopy(data), "quantity": ZERO, "cost": ZERO, "cost_cny": ZERO,

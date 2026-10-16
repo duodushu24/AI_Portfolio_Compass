@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.services.portfolio.ledger import asset_unit
 from app.models import AIAnalysis, PositionSnapshot, ProfileVersion
 from app.services.ai_runtime import active_ai_runtime, runtime_can_call_external
 from app.services.sync import recent_news_for_code
@@ -152,6 +153,7 @@ def build_ai_context(db: Session, position: PositionSnapshot) -> dict[str, Any]:
             "name": position.name,
             "market": position.market,
             "asset_type": position.asset_type,
+            "unit": asset_unit(position.asset_type, getattr(position, "unit", None)),
             "quantity": position.quantity,
             "current_price": position.current_price,
             "average_cost": position.average_cost,

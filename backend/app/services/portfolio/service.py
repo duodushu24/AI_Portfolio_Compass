@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountSnapshot, Deal, HoldingObservationBatch, PortfolioEvent, PortfolioOpening, PositionSnapshot, QuoteSummary
-from .ledger import ASSETS, ZERO, currency, key, number
+from .ledger import ASSET_UNITS, ASSETS, ZERO, asset_unit, currency, key, number
 from .performance import instant, iso, public, replay
 
 
@@ -55,7 +55,17 @@ def asset(data):
     if result["market"] in {"SH", "SZ", "BJ"}:
         result["market"] = "CN"
     result["asset_type"] = str(data.get("asset_type", "stock"))
-    result["unit"] = str(data.get("unit") or ("fund_unit" if result["asset_type"] == "fund" else "share"))
+    result["unit"] = asset_unit(result["asset_type"], data.get("unit"))
+    if result["asset_type"] == "precious_metal":
+        if not str(data.get("name") or "").strip():
+            raise ValueError("请填写银行及黄金产品名称")
+        if result["market"] != "CN" or result["currency"] != "CNY":
+            raise ValueError("银行贵金属目前按境内 CNY、克单位记账")
+        result["code"] = result["code"].upper() or f"CN.GOLD.{uuid4().hex.upper()}"
+        if not result["code"].startswith("CN.GOLD."):
+            raise ValueError("银行黄金请使用独立的 CN.GOLD.产品标识，不同银行产品不能共用代码")
+    elif result["code"].upper().startswith("CN.GOLD."):
+        raise ValueError("CN.GOLD.标识仅用于按克记账的银行贵金属")
     result["name"] = str(data.get("name") or result["code"]).strip()
     if not result["code"] or result["market"] not in {"CN", "HK", "US"}:
         raise ValueError("请填写标的代码和 CN/HK/US 市场")
@@ -66,10 +76,10 @@ def asset(data):
     code_market = "CN" if prefix in {"CN", "SH", "SZ", "BJ", "FUND"} else prefix
     if code_market != result["market"]:
         raise ValueError("标的代码前缀与市场不一致")
-    if result["asset_type"] not in ASSETS or result["unit"] not in {"share", "fund_unit"}:
+    if result["asset_type"] not in ASSETS:
         raise ValueError("此资产类型或数量单位尚未支持明确的现金记账")
-    if (result["asset_type"] == "fund") != (result["unit"] == "fund_unit"):
-        raise ValueError("场外基金按 fund_unit 份额记账，其余已支持证券按 share 数量记账")
+    if result["unit"] != ASSET_UNITS[result["asset_type"]]:
+        raise ValueError("数量单位不匹配：场外基金用 fund_unit，贵金属用 gram，其余证券用 share")
     return result
 
 
@@ -88,8 +98,10 @@ def quotes(data, at):
         item["at"] = iso(item.get("at") or at)
         item["source"] = str(item.get("source") or "手工")
         item["price_kind"] = item.get("price_kind", "nav" if item["asset_type"] == "fund" else "price")
-        if instant(item["at"]) > at or item["price_kind"] not in {"price", "nav", "estimate"}:
+        if instant(item["at"]) > at or item["price_kind"] not in {"price", "nav", "estimate", "redemption", "bank_value"}:
             raise ValueError("报价类型无效或实际报价时间晚于记录时间")
+        if item["price_kind"] in {"redemption", "bank_value"} and item["asset_type"] != "precious_metal":
+            raise ValueError("银行黄金报价口径仅适用于贵金属")
         result["prices"].append({name: item[name] for name in ("code", "name", "market", "asset_type", "currency", "unit", "price", "at", "source", "price_kind")})
     for curr, item in data.get("fx", {}).items():
         curr = currency(curr)
@@ -361,7 +373,7 @@ def source_opening(db, account_id):
     snapshot = db.scalar(select(AccountSnapshot).where(AccountSnapshot.account_id == account_id).order_by(AccountSnapshot.snapshot_time.desc()))
     return public({"account_id": account_id, "effective_at": iso(datetime.now(timezone.utc)), "included": True,
         "positions": [{"code": p.code, "name": p.name, "market": p.market, "asset_type": p.asset_type,
-            "unit": "fund_unit" if p.asset_type == "fund" else "share", "currency": p.raw_currency or account.base_currency,
+            "unit": asset_unit(p.asset_type, p.unit), "currency": p.raw_currency or account.base_currency,
             "quantity": str(p.quantity), "average_cost": str(p.average_cost) if p.cost_method == "average" else None,
             "price": str(p.current_price) if p.current_price else None, "price_at": iso(p.snapshot_time),
             "cost_cny_amount": str(p.cost_cny_amount) if p.cost_cny_amount is not None else None,
@@ -389,14 +401,14 @@ def projection_positions(db, account_id=None, include_closed=False):
             if not include_closed and not p["quantity"]:
                 continue
             row = PositionSnapshot(id=None, account_id=aid, code=p["code"], name=p["name"], market=p["market"], asset_type=p["asset_type"],
-                quantity=float(p["quantity"]), average_cost=float(p["average_cost"] or ZERO), current_price=float(p["price"] or ZERO),
+                unit=p["unit"], quantity=float(p["quantity"]), average_cost=float(p["average_cost"] or ZERO), current_price=float(p["price"] or ZERO),
                 raw_market_value=float(p["market_value"] or ZERO), raw_currency=p["currency"], normalized_market_value=float(p["market_value_cny"] or ZERO),
                 normalized_currency="CNY", exchange_rate_to_base=float(number(p["fx"]["rate"])) if p["fx"] else None,
                 position_weight=float(p["market_value_cny"] / total) if total and p["market_value_cny"] is not None else 0,
                 profit_loss_ratio=float(p["holding_return"]) if p["holding_return"] is not None else 0,
                 cost_method="average" if p["cost"] is not None else "unknown", cost_cny_amount=p["cost_cny"],
                 position_layer=p["position_layer"], layer_source="ledger", layer_confidence="高", layer_reason="平均成本账目",
-                missing_market_code=False, snapshot_time=max(instant(p["last_at"]), instant(p["quote"]["at"]) if p["quote"] else instant(p["last_at"])), sync_id="portfolio_ledger", is_void=False,
+                missing_market_code=p["asset_type"] == "precious_metal", snapshot_time=max(instant(p["last_at"]), instant(p["quote"]["at"]) if p["quote"] else instant(p["last_at"])), sync_id="portfolio_ledger", is_void=False,
                 first_buy_time=instant(p["first_at"]), last_trade_time=instant(p["last_at"]))
             row.ledger_result = public(p)
             rows.append(row)
@@ -458,7 +470,7 @@ def reconcile(db, account_id):
                 "ledger_average_cost": str(average) if average is not None else None,
                 "reason": "同一时点的数量不同" if quantity_differs else "同一时点的平均成本不同"})
     for row in positions_as_of(db, account_id):
-        compare(row.code, row.raw_currency or account.base_currency, "fund_unit" if row.asset_type == "fund" else "share",
+        compare(row.code, row.raw_currency or account.base_currency, asset_unit(row.asset_type, row.unit),
                 row.snapshot_time, row.quantity, row.average_cost, row.cost_method == "average")
     # Only a full observation proves that unlisted assets were absent. Partial imports do not.
     full_scopes = {}
@@ -470,7 +482,7 @@ def reconcile(db, account_id):
         if current is None:
             continue
         rows = positions_as_of(db, account_id, batch.observed_at)
-        source_keys = {(r.code, r.raw_currency or account.base_currency, "fund_unit" if r.asset_type == "fund" else "share") for r in rows}
+        source_keys = {(r.code, r.raw_currency or account.base_currency, asset_unit(r.asset_type, r.unit)) for r in rows}
         for p in current["positions"]:
             if p["quantity"] and (not market or p["market"] == market) and key(p) not in source_keys:
                 compare(p["code"], p["currency"], p["unit"], batch.observed_at, ZERO)
@@ -487,7 +499,7 @@ def ingest_quotes(db, rows, source):
     for row in rows:
         at = instant(row["quote_time"])
         for account_id, book in result["ledger"].accounts.items():
-            related = [p for p in book["positions"].values() if p["code"] == row["code"]]
+            related = [p for p in book["positions"].values() if p["code"] == row["code"] and p["asset_type"] != "precious_metal"]
             if not related:
                 continue
             # A market quote has a single currency/unit; do not guess across ambiguous assets.

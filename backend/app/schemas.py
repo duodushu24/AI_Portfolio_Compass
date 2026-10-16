@@ -52,6 +52,7 @@ class PositionSnapshotSaveRequest(BaseModel):
     name: str = ""
     market: str = ""
     asset_type: str = "stock"
+    unit: str = ""
     quantity: float = 0
     average_cost: float = 0
     current_price: float = 0

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.futu_adapter import FutuReadOnlyAdapter
 from app.config import get_settings
+from app.services.portfolio.ledger import asset_unit
 from app.models import DecisionCard, PositionSnapshot
 from app.services.ai_engine import call_llm_chat_completion, _sanitize_output
 from app.services.ai_runtime import active_ai_runtime, runtime_can_call_external
@@ -208,6 +209,7 @@ def _card_context(
             "name": position.name,
             "market": position.market,
             "asset_type": position.asset_type,
+            "unit": asset_unit(position.asset_type, getattr(position, "unit", None)),
             "quantity": position.quantity,
             "current_price": position.current_price,
             "average_cost": position.average_cost,

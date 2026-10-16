@@ -119,6 +119,7 @@ export type Position = {
   name: string;
   market: string;
   asset_type: string;
+  unit?: string;
   quantity: number;
   current_price: number;
   average_cost: number;
@@ -149,6 +150,7 @@ export type PositionSnapshotPayload = {
   name: string;
   market: string;
   asset_type: string;
+  unit?: string;
   quantity: number;
   average_cost: number;
   current_price: number;
