@@ -21,7 +21,7 @@ def facts(db):
 
 
 def calculate(db, scope="all", until=None):
-    return replay(*facts(db), scope=scope, until=until or datetime.now(timezone.utc).replace(tzinfo=None))
+    return replay(*facts(db), scope=scope, until=until or datetime.now(timezone.utc).replace(tzinfo=None), latest_current=until is None)
 
 
 def enrolled(db, account_id):
@@ -362,12 +362,14 @@ def overview(db, scope="all", until=None, code=None):
                 for e in events if (e.account_id in ids or e.data.get("to_account_id") in ids) and (not code or e.data.get("code") == code or any(p["code"] == code for p in e.data.get("prices", [])))]
     now = instant(result["as_of"]) if result["as_of"] else datetime.now(timezone.utc).replace(tzinfo=None)
     included_ids = {o.account_id for o in openings if o.included_at and o.included_at <= now and (not o.excluded_at or o.excluded_at > now)}
-    current = points[-1] if points else None
+    current = result["current"]
+    if current and code:
+        current = {**current, "positions": [p for p in current["positions"] if p["code"] == code]}
     return public({"scope": scope, "currency": "CNY", "account_names": account_names,
         "coverage": {"included_accounts": sorted(included_ids), "unenrolled_accounts": [a.account_id for a in db.scalars(select(Account)) if a.account_id not in {o.account_id for o in openings}]},
         "holdings": aggregate_assets(current["positions"]) if current else [],
         "allocation": allocation(current),
-        "current": points[-1] if points else None, "points": points,
+        "current": current, "points": points,
         "records": sorted(records, key=lambda r: (r["effective_at"], r["category"], r["id"]), reverse=True),
         "openings": [{"account_id": o.account_id, "effective_at": iso(o.effective_at), "included": o.included_at is not None,
                       "included_at": iso(o.included_at) if o.included_at else None, "excluded_at": iso(o.excluded_at) if o.excluded_at else None,
@@ -475,7 +477,7 @@ def projection_positions(db, account_id=None, include_closed=False):
     for aid in ids:
         if aid not in result["ledger"].accounts:
             continue
-        current = result["prices"].value(result["ledger"], {aid}, at)
+        current = result["prices"].value(result["ledger"], {aid}, at, latest=True)
         total = current["total_assets"]
         for p in current["positions"]:
             if not include_closed and not p["quantity"]:
@@ -506,7 +508,7 @@ def projection_accounts(db, account_id=None):
         if account_id in (None, "all") and (o.included_at is None or o.included_at > now or o.excluded_at is not None and o.excluded_at <= now):
             continue
         if o.account_id in result["ledger"].accounts:
-            p = result["prices"].value(result["ledger"], {o.account_id}, at)
+            p = result["prices"].value(result["ledger"], {o.account_id}, at, latest=True)
             rows.append(AccountSnapshot(account_id=o.account_id, total_assets=float(p["total_assets"] or p["known_assets"]),
                 cash=float(p["cash_value"] or ZERO), market_value=float(p["market_value"] or ZERO),
                 raw_currency_values={"currency": "CNY", "ledger_quality": p["quality"], "ledger_total": public(p["total_assets"]), "ledger_cash": public(p["cash_value"]), "ledger_market": public(p["market_value"])},

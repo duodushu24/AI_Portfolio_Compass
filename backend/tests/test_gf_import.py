@@ -96,7 +96,38 @@ def test_explicit_valuation_does_not_fill_other_dates(db):
                              "unit": "share", "price": "7", "at": "2026-01-07T07:00:00Z"}]}})
     assert service.overview(db, "gf")["current"]["total_assets"] == "934.0"
     service.save_event(db, {"account_id": "gf", "kind": "interest", "effective_at": "2026-01-08T07:00:00Z", "data": {"amount": "1"}})
-    assert service.overview(db, "gf")["current"]["total_assets"] is None
+    result = service.overview(db, "gf")
+    assert result["current"]["total_assets"] == "935.0"
+    assert result["current"]["positions"][0]["quote"]["at"] == "2026-01-07T07:00:00Z"
+    assert any("沿用" in i for i in result["current"]["issues"])
+    assert result["points"][-1]["total_assets"] is None
+    assert service.overview(db, "gf", "2026-01-08T07:00:00Z")["current"]["total_assets"] is None
+    assert service.overview(db, "gf", "2026-01-06T07:00:00Z")["current"]["positions"][0]["price"] is None
+    assert all(p["cumulative_return"] is None for p in result["points"])
+    assert len(result["current"]["performance_issues"]) == 1
+    # The legacy readers must show the same present values, without writing snapshots.
+    assert service.projection_positions(db, "gf")[0].current_price == 7
+    assert service.projection_accounts(db, "gf")[0].total_assets == 935
+
+
+def test_latest_genuine_quote_survives_estimate_and_trade_observations(db):
+    replace_ledger(db, "gf", prepare(*sources()), commit=True)
+    def quote(price, day, kind="price"):
+        service.save_event(db, {"account_id": "gf", "kind": "valuation", "effective_at": f"2026-01-{day}T07:00:00Z",
+            "data": {"prices": [{"code": "CN.510000", "market": "CN", "asset_type": "etf", "currency": "CNY",
+                "unit": "share", "price": price, "at": f"2026-01-{day}T07:00:00Z", "price_kind": kind}]}})
+    quote("7", "07")
+    quote("90", "08", "estimate")
+    assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "7"
+    service.save_opening(db, "other", {"effective_at": "2026-01-01T00:00:00Z", "cash": {"CNY": "500"}, "positions": []})
+    service.save_trade(db, {"account_id": "other", "effective_at": "2026-01-09T07:00:00Z", "code": "CN.510000",
+        "market": "CN", "asset_type": "etf", "currency": "CNY", "quantity": "1", "price": "100", "side": "BUY"})
+    assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "7"
+    quote("8", "10")
+    assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "8"
+    service.save_event(db, {"account_id": "gf", "kind": "share_credit", "effective_at": "2026-01-11T07:00:00Z",
+        "data": {"code": "CN.510000", "market": "CN", "asset_type": "etf", "currency": "CNY", "unit": "share", "quantity": "10"}})
+    assert service.overview(db, "gf")["current"]["positions"][0]["price"] is None
 
 
 def test_reimport_detects_edited_records_and_opening_keeps_price_policy(db):

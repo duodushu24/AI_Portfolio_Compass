@@ -36,6 +36,7 @@ def public(value):
 class Prices:
     def __init__(self):
         self.prices = {}
+        self.real_prices = {}
         self.fx = {"CNY": {"rate": "1", "at": None, "source": "本币"}}
 
     def update(self, data, at):
@@ -46,6 +47,11 @@ class Prices:
             previous = self.prices.get(k)
             if not previous or instant(item["at"]) >= instant(previous["at"]):
                 self.prices[k] = deepcopy(item)
+            # Keep genuine observations independently of newer trade/estimate values.
+            if item.get("price_kind") != "estimate" and item.get("valuation_origin") != "trade":
+                previous_real = self.real_prices.get(k)
+                if not previous_real or instant(item["at"]) >= instant(previous_real["at"]):
+                    self.real_prices[k] = deepcopy(item)
         for curr, item in data.get("fx", {}).items():
             previous = self.fx.get(curr)
             if curr != "CNY" and (not previous or instant(item["at"]) >= instant(previous["at"])):
@@ -55,7 +61,7 @@ class Prices:
         item = self.fx.get(curr)
         return number(item["rate"]) if item else None
 
-    def value(self, ledger, accounts, at):
+    def value(self, ledger, accounts, at, *, latest=False):
         positions, cash, pending, liabilities, issues = [], [], [], [], []
         total, market_value, cash_value = ZERO, ZERO, ZERO
 
@@ -75,7 +81,8 @@ class Prices:
             for k, p in book["positions"].items():
                 quote = self.prices.get(k)
                 if ledger.accounts[account_id].get("valuation_policy") == "explicit_only":
-                    if quote and (instant(quote["at"]) != at or quote.get("price_kind") == "estimate" or quote.get("valuation_origin") == "trade"):
+                    quote = self.real_prices.get(k)
+                    if quote and (instant(quote["at"]) > at or not latest and instant(quote["at"]) != at):
                         quote = None
                 q, cost = p["quantity"], p["cost"]
                 price = number(quote["price"]) if quote else None
@@ -135,7 +142,7 @@ class Prices:
                 "liabilities": liabilities, "asset_returns": asset_returns, "issues": sorted(set(issues)), "quality": "missing" if not complete else "estimated" if issues else "complete"}
 
 
-def replay(openings, deals, events, scope="all", until=None):
+def replay(openings, deals, events, scope="all", until=None, *, latest_current=False):
     """Deterministic replay; no current FX cache, network, or edits to source rows."""
     timeline = []
     for row in openings:
@@ -178,6 +185,9 @@ def replay(openings, deals, events, scope="all", until=None):
             quote = prices.prices.get(key(data))
             if quote:
                 prices.prices[key(data)] = {**quote, "price": str(number(quote["price"]) / number(data["factor"])), "source": "原报价按拆分比例调整", "price_kind": "estimate"}
+        if kind in {"split", "share_credit"}:
+            # A pre-adjustment unit price is not a post-adjustment market quote.
+            prices.real_prices.pop(key(data), None)
         before = prices.value(ledger, before_scope, at)
         before_assets = before["total_assets"]
         flow, changes = ZERO, None
@@ -264,7 +274,7 @@ def replay(openings, deals, events, scope="all", until=None):
         if not valid:
             cumulative_issues.add("资金流边界资料缺失，需补录后才能还原净值")
         if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):
-            cumulative_issues.add("历史估值未补齐，仅记录真实账目；不生成推算收益率")
+            cumulative_issues = {"历史估值未补齐，暂不计算历史收益率；当前持仓可显示带日期的真实报价"}
         result.update(observed_at=iso(at), account_ids=sorted(selected), event_type=kind,
             record_id=record_id, account_id=account_id, data=data, changes=changes,
             units=units, nav=last_nav if valid and assets is not None else None,
@@ -276,4 +286,11 @@ def replay(openings, deals, events, scope="all", until=None):
             # Missing valuations at funding boundaries cannot be repaired with later quotes.
             result.update(nav=None, cumulative_return=None, profit=None)
         points.append(deepcopy(result))
-    return {"points": points, "current": points[-1] if points else None, "ledger": ledger, "prices": prices, "as_of": iso(last_at) if last_at else None}
+    current = deepcopy(points[-1]) if points else None
+    if current and latest_current:
+        selected = set(current["account_ids"])
+        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):
+            # Only the present view may use an older genuine quote. Historical points
+            # stay missing; this overlay must never become a saved valuation fact.
+            current.update(prices.value(ledger, selected, last_at, latest=True))
+    return {"points": points, "current": current, "ledger": ledger, "prices": prices, "as_of": iso(last_at) if last_at else None}
