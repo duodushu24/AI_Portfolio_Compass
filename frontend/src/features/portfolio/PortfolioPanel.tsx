@@ -9,10 +9,11 @@ export const numeric = (v: string | number | null | undefined) => v == null ? "�
 export const percent = (v: string | null | undefined) => v == null ? "—" : `${(Number(v) * 100).toFixed(2)}%`;
 export const timeLabel = (v: string) => new Date(v).toLocaleString("zh-CN", { hour12: false });
 export const accountLabel = (id: string, names: Record<string, string> = {}) => names[id] || "未命名账户";
-export const labels: Record<string, string> = { opening: "建档", include: "纳入组合", exclude: "移出组合", trade: "买卖", valuation: "更新市值", deposit: "入金", withdrawal: "出金", transfer: "账户转账", dividend: "分红", interest: "利息", fee: "费用", fx: "换汇", subscription: "待确认申购", settle: "赎回到账", cancel_subscription: "申购撤回", split: "拆分", position_transfer: "转托管" };
+export const labels: Record<string, string> = { opening: "建档", include: "纳入组合", exclude: "移出组合", trade: "买卖", valuation: "更新市值", deposit: "入金", withdrawal: "出金", transfer: "账户转账", dividend: "分红", interest: "利息", fee: "费用", fx: "换汇", subscription: "待确认申购", settle: "赎回到账", cancel_subscription: "申购撤回", split: "拆分", share_credit: "红股入账", position_transfer: "转托管" };
 
 function Chart({ points, metric, onSelect, assetCode = "" }: { points: Point[]; metric: string; onSelect: (p: Point) => void; assetCode?: string }) {
   if (!points.length) return <Empty description="确认期初后，买卖、资金和市值更新会自动形成收益记录。" />;
+  if (points.every(p => p.cumulative_return == null && p.profit == null)) return <Empty description="历史估值未补齐，暂不展示收益曲线。交易和资金记录已保留。" />;
   const value = (p: Point) => {
     if (assetCode) {
       const result = p.asset_returns[assetCode];

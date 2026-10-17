@@ -51,6 +51,7 @@ class Ledger:
                 "cost_cny": None if item.get("cost_cny_amount") is None else number(item["cost_cny_amount"]),
                 "realized": ZERO, "realized_cny": ZERO, "cycle": 1, "first_at": data["effective_at"], "last_at": data["effective_at"],
                 "cycle_realized": ZERO, "cycle_realized_cny": ZERO, "cycle_disposed_cost": ZERO, "cycle_trades": [], "opening_kind": "snapshot", "closed_cycles": []}
+        book["valuation_policy"] = data.get("valuation_policy", "trade_observations")
         self.accounts[account_id] = book
 
     def cash(self, account_id, curr, delta):
@@ -78,7 +79,7 @@ class Ledger:
             book["positions"][k] = p
         q, price, fee = (number(data[n]) for n in ("quantity", "price", "fees"))
         before = deepcopy(p)
-        amount = q * price
+        amount = number(data["gross_amount"]) if data.get("gross_amount") is not None else q * price
         gain = None
         detail = {"record_id": data.get("record_id"), "at": at, "side": data["side"],
                   "quantity": q, "price": price, "fees": fee, "disposed_cost": None, "realized": None}
@@ -160,11 +161,15 @@ class Ledger:
             if not pending or pending["kind"] != expected:
                 raise ValueError("需关联有效待到账赎回或待确认申购记录")
             self.cash(account_id, pending["currency"], pending["amount"])
-        elif kind in {"split", "position_transfer"}:
+        elif kind in {"split", "share_credit", "position_transfer"}:
             p = book["positions"].get(key(data))
             if not p or not p["quantity"]:
                 raise ValueError("调整标的在此时点没有持仓")
-            if kind == "split":
+            if kind == "share_credit":
+                # Broker credit belongs to this account only; total cost is unchanged.
+                p["quantity"] += number(data["quantity"])
+                p["last_at"] = at
+            elif kind == "split":
                 # A corporate split changes the asset unit in every enrolled account.
                 for other in self.accounts.values():
                     related = other["positions"].get(key(data))

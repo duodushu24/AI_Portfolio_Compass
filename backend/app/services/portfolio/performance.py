@@ -74,6 +74,9 @@ class Prices:
             book = ledger.accounts[account_id]
             for k, p in book["positions"].items():
                 quote = self.prices.get(k)
+                if ledger.accounts[account_id].get("valuation_policy") == "explicit_only":
+                    if quote and (instant(quote["at"]) != at or quote.get("price_kind") == "estimate" or quote.get("valuation_origin") == "trade"):
+                        quote = None
                 q, cost = p["quantity"], p["cost"]
                 price = number(quote["price"]) if quote else None
                 mv = q * price if price is not None else ZERO if not q else None
@@ -168,9 +171,9 @@ def replay(openings, deals, events, scope="all", until=None):
         else:
             prices.update(data, at)
         # A trade price is a dated observation; it also values the same asset in other accounts.
-        if kind == "trade":
+        if kind == "trade" and ledger.accounts[account_id].get("valuation_policy") != "explicit_only":
             prices.update({"prices": [{**{n: data[n] for n in ("code", "currency", "unit")},
-                "price": data["price"], "at": iso(at), "source": data.get("source", "成交"), "price_kind": "nav" if data["asset_type"] == "fund" else "price"}]}, at)
+                "price": data["price"], "at": iso(at), "source": data.get("source", "成交"), "valuation_origin": "trade", "price_kind": "nav" if data["asset_type"] == "fund" else "price"}]}, at)
         if kind == "split":
             quote = prices.prices.get(key(data))
             if quote:
@@ -212,7 +215,7 @@ def replay(openings, deals, events, scope="all", until=None):
             continue
         # Events outside this scope can still change shared quotes; only emit relevant points.
         quoted = {key(i) for i in data.get("prices", [])}
-        if kind == "trade":
+        if kind == "trade" and ledger.accounts[account_id].get("valuation_policy") != "explicit_only":
             quoted.add(key(data))
         if kind == "split":
             quoted.add(key(data))
@@ -260,6 +263,8 @@ def replay(openings, deals, events, scope="all", until=None):
             cumulative_issues.add(f"{iso(at)} 资金流使用沿用报价/汇率估值，补录当时报价可重算")
         if not valid:
             cumulative_issues.add("资金流边界资料缺失，需补录后才能还原净值")
+        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):
+            cumulative_issues.add("历史估值未补齐，仅记录真实账目；不生成推算收益率")
         result.update(observed_at=iso(at), account_ids=sorted(selected), event_type=kind,
             record_id=record_id, account_id=account_id, data=data, changes=changes,
             units=units, nav=last_nav if valid and assets is not None else None,
@@ -267,5 +272,8 @@ def replay(openings, deals, events, scope="all", until=None):
             profit=assets - base - net_flows if base is not None and assets is not None and valid else None,
             opening_assets=base, net_flows=net_flows, external_flow=flow, interval=interval,
             ended=units == ZERO and base is not None, performance_issues=sorted(cumulative_issues))
+        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):
+            # Missing valuations at funding boundaries cannot be repaired with later quotes.
+            result.update(nav=None, cumulative_return=None, profit=None)
         points.append(deepcopy(result))
     return {"points": points, "current": points[-1] if points else None, "ledger": ledger, "prices": prices, "as_of": iso(last_at) if last_at else None}

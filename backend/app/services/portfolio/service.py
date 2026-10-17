@@ -146,6 +146,10 @@ def save_opening(db, account_id, payload, correction=False, commit=True):
             "source": str(payload.get("source") or "用户确认期初"), **quotes({"prices": prices, "fx": payload.get("fx", {})}, at)}
     if previous and previous.data.get("history_checkpoints"):
         data["history_checkpoints"] = deepcopy(previous.data["history_checkpoints"])
+    if previous:
+        for field in ("valuation_policy", "gf_import"):
+            if field in previous.data:
+                data[field] = deepcopy(previous.data[field])
     included_at = instant(payload.get("included_at") or at) if payload.get("included", True) else None
     excluded_at = instant(payload["excluded_at"]) if payload.get("excluded_at") else None
     if included_at and (included_at < at or excluded_at and excluded_at <= included_at):
@@ -270,7 +274,7 @@ def save_trade(db, payload, record_id=None, commit=True):
     return transaction(db, write) if commit else write()
 
 
-FUNDS = {"deposit", "withdrawal", "transfer", "dividend", "interest", "fee", "fx", "subscription", "settle", "cancel_subscription", "split", "position_transfer"}
+FUNDS = {"deposit", "withdrawal", "transfer", "dividend", "interest", "fee", "fx", "subscription", "settle", "cancel_subscription", "split", "share_credit", "position_transfer"}
 
 
 def save_event(db, payload, record_id=None, commit=True):
@@ -310,7 +314,7 @@ def save_event(db, payload, record_id=None, commit=True):
                 raise ValueError("换汇需两种不同币种")
         if kind in {"settle", "cancel_subscription"} and not data.get("pending_id"):
             raise ValueError("请选择待确认/到账记录")
-        if kind in {"split", "position_transfer"}:
+        if kind in {"split", "share_credit", "position_transfer"}:
             data = asset(data)
             field = "factor" if kind == "split" else "quantity"
             data[field] = str(number(data.get(field), minimum=Decimal("0.000000000001")))
