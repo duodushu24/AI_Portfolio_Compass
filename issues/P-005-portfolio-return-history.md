@@ -5,11 +5,11 @@ id: P-005
 title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
-updated: "2026-10-13"
-changes: ["C-007", "C-008", "C-009", "C-010"]
+updated: "2026-10-17"
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012"]
 related: ["P-001", "P-002"]
-evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md"]
-next: "验收页面收敛、清仓收益率与首笔交易及历史补录流程"
+evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md"]
+next: "验收资产组合总收益、简洁持仓表和独立已清仓查询"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
 ---
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-17 用户确认重新划分展示职责：原“持仓”改为“资产组合”，固定展示全组合收益，账户与数据只作分账户记账及查询；持仓表移除重复单位、拆分价格和盈亏，清仓记录独立页签。已按批准方案由 [C-012](../CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md) 实施；相关账目测试累计 41 项通过，前端构建与隔离浏览器交互/视觉检查通过。只用虚构数据，正式服务未重启，等待实际使用验收。S-002 已同步本轮展示方案，之前 C-010 的页面排列仅代表当时实现。
 
 **唯一当前方案：[S-002：完整账户记账与收益计算](solutions/P-005/S-002-account-ledger-performance.md)。** 2026-10-13 用户试用后反馈现有持仓、成交、价格和收益操作分散，希望重新设计为类似金融应用的全账户持仓记录与收益统计，要求操作简洁、计算统一、代码集中。用户确认平均成本，并明确选择完整账户收益，包括现金、入金和出金；本轮要求更新 P、记录 S-002、归档 S-001。
 
@@ -57,6 +59,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 - **名称问题结论：** 用户重启前后端后已解决，属于运行接口未加载此前更新；本轮不增加账户名称修正。
 
 ## 关键讨论结论
+
+- **2026-10-17 展示范围已确认**：组合整体收益是默认且唯一账户级曲线；账户选择仅筛选持仓/查询，不改变该曲线。分账户记录、计算校验和资金边界继续保留。清仓查询按完整持有阶段，退出后再买入不丢历史；胜率按原币已知盈亏计算，历史汇率或人民币成本缺失时不生成完整人民币合计。
 
 - **用户已确认**：只用平均成本；完整账户收益包含现金及资金进出；逐步从首次买入录入历史，不以软件建立后的收益为主要目标。成本由首次买入及后续买卖自动维护；已有持仓可确认一次期初成本；手工市值形成观察点，操作与代码简洁。
 - **当前设计**：平均成本负责持仓与卖出盈亏，净值/份额负责累计账户收益率；账户收益始终标明实际统计起点。已有持仓起点可能包含之前的浮盈，向前补齐真实交易后重算完整已录入区间。累计收益率不能乘当前资产换算累计利润，新增资金通过份额参与后续计算。
