@@ -6,10 +6,10 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-17"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013"]
 related: ["P-001", "P-002"]
-evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md"]
-next: "验收资产组合总收益、简洁持仓表和独立已清仓查询"
+evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md"]
+next: "验收联合明细导入后的账目与清仓查询；缺失历史估值不推算"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
 ---
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-17 用户授权处理券商对账单与资金流水并写入正式系统，明确不推算历史估值。[C-013](../CODE_CHANGE_LOG/C-013-gf-ledger-import.md) 完成联合解析、隔离试写、指定账户重建和明确报价限制；逐笔/日终来源核对及正式 API 检查通过，其他账户与个人记录无变化，恢复副本留在本地运行目录。已写入不代表全部页面验收完成；不将缺失历史价格伪装为完整收益曲线。
 
 2026-10-17 用户确认重新划分展示职责：原“持仓”改为“资产组合”，固定展示全组合收益，账户与数据只作分账户记账及查询；持仓表移除重复单位、拆分价格和盈亏，清仓记录独立页签。已按批准方案由 [C-012](../CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md) 实施；相关账目测试累计 41 项通过，前端构建与隔离浏览器交互/视觉检查通过。只用虚构数据，正式服务未重启，等待实际使用验收。S-002 已同步本轮展示方案，之前 C-010 的页面排列仅代表当时实现。
 
