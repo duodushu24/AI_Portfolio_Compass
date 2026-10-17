@@ -5,9 +5,9 @@ id: P-006
 title: "银行黄金按克记账"
 status: active
 created: "2026-10-16"
-updated: "2026-10-16"
+updated: "2026-10-17"
 changes: ["C-011"]
-related: ["P-005"]
+related: ["P-005", "P-007"]
 evidence: ["CODE_CHANGE_LOG/C-011-bank-gold.md", "backend/tests/test_portfolio_ledger.py", "frontend/src/features/portfolio/assets.ts"]
 next: "重启后按银行黄金实际录入，验收单位、报价与收益"
 priority: medium
@@ -19,6 +19,8 @@ tags: ["precious-metal", "gold", "ledger"]
 ## 当前进度
 
 用户确认需要银行积存金／账户黄金、按克记录，并批准手工记账方案。C-011 已完成类型、单位、来源、买卖、估值与展示闭环，隔离账目和分析上下文测试通过，前端构建通过。正式服务和真实账目未操作，等待重启后的实际使用验收。
+
+未来统一成本方法的变更由 [P-007](P-007-diluted-cost-dividends.md) 跟踪；本页平均成本描述代表 C-011 交付时和当前代码行为，不是并行保留第二种算法的要求。该成本变更尚未实施，黄金单位、独立产品及银行报价约束继续有效。
 
 ## 目标与已确认方案
 

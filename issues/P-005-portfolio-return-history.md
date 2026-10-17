@@ -7,7 +7,7 @@ status: active
 created: "2026-10-13"
 updated: "2026-10-17"
 changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014"]
-related: ["P-001", "P-002"]
+related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md"]
 next: "验收联合明细导入后的账目与清仓查询；缺失历史估值不推算"
 priority: high
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-17 成本与分红规则的明确变更单列为 [P-007](P-007-diluted-cost-dividends.md)，详细设计见 [P-007/S-001](solutions/P-007/S-001-diluted-cost-dividend-accounting.md)：未来只用摊薄成本，部分卖出不单列清仓收益，现金分红不改成本且归入最终阶段清仓收益；补充应收分红与除息价格分离。本轮仅记录问题与设计，现行平均成本代码及账目未修改，P-005 的账户净值与真实报价原则继续沿用。
 
 2026-10-17 用户授权修正最新报价读取规则。[C-014](../CODE_CHANGE_LOG/C-014-current-real-quotes.md) 将当前展示与严格历史估值分开：当前允许沿用明确真实报价并标明日期，历史缺失保持缺失，重复资金边界提示合并；相关 6 项隔离检查及重载后的正式接口核对通过。未新增行情抓取或改写真实账目，自动行情目前仍依赖未连接的 OpenD。
 
