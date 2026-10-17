@@ -71,7 +71,7 @@ def current(db, scope="all"):
     return s.calculate(db, scope)["current"]
 
 
-def test_average_cost_cash_fees_partial_exit_rebuy(records):
+def test_diluted_cost_cash_fees_partial_exit_rebuy(records):
     _, sessions = records
     with sessions() as db:
         opening(db, positions=[asset(quantity="100", average_cost="10", price="12")])
@@ -80,7 +80,7 @@ def test_average_cost_cash_fees_partial_exit_rebuy(records):
         assert p["quantity"] == 150 and p["cost"] == 1705 and p["average_cost"] == D(1705) / 150
         trade(db, "SELL", "30", "15", day=2, fees="3")
         p = current(db)["positions"][0]
-        assert p["quantity"] == 120 and p["cost"] == 1364 and p["realized"] == 106
+        assert p["quantity"] == 120 and p["cost"] == 1258 and p["realized"] == 0
         assert current(db)["cash_value"] == 742
         trade(db, "SELL", "120", "16", day=3, fees="7")
         p = current(db)["positions"][0]
@@ -161,9 +161,9 @@ def test_pending_subscription_redemption_dividend_and_expense(records):
         assert current(db)["total_assets"] == 1018 and current(db)["cash_value"] == 800
         event(db, "settle", 4, pending_id=f"deal:{sell}")
         assert current(db)["total_assets"] == 1018 and current(db)["cash_value"] == 1018
-        event(db, "dividend", 5, currency="CNY", amount="20")
+        event(db, "dividend", 5, **asset(asset_type="fund", unit="fund_unit"), amount="20", cycle=1)
         event(db, "fee", 6, currency="CNY", amount="3")
-        assert current(db)["profit"] == 35 and current(db)["positions"][0]["realized"] == 18
+        assert current(db)["profit"] == 35 and current(db)["positions"][0]["realized"] == 38
         with pytest.raises(ValueError):
             s.void(db, "trade", buy)  # Would create a later oversell; no half mutation.
         assert not db.get(Deal, buy).is_void
@@ -472,7 +472,7 @@ def test_reconciliation_compares_snapshot_time_not_current_exit(records):
     with sessions() as db:
         opening(db, positions=[asset(quantity="10", average_cost="8", price="10")])
         db.add(PositionSnapshot(account_id="test-a", code="CN.TEST", market="CN", asset_type="stock", quantity=10,
-            average_cost=8, cost_method="average", raw_currency="CNY", snapshot_time=T, sync_id="source"))
+            average_cost=8, cost_method="diluted", raw_currency="CNY", snapshot_time=T, sync_id="source"))
         db.commit()
         trade(db, "SELL", quantity="10", price="12")
         assert s.reconcile(db, "test-a") == []
@@ -582,8 +582,8 @@ def test_gold_grams_cash_cost_fees_valuation_and_closed_return(records):
         trade(db, "SELL", "4.125", "650", day=2, fees="5", **gold())
         event(db, "valuation", 3, prices=[{**gold(), "market_value": "3900", "price_kind": "bank_value", "at": when(3), "source": "虚构银行展示市值"}])
         p = current(db)["positions"][0]
-        assert p["quantity"] == 6 and p["cost"] == 3606 and p["realized"] == D("197.125")
-        assert p["price"] == 650 and p["floating"] == 294 and p["quote"]["price_kind"] == "bank_value"
+        assert p["quantity"] == 6 and p["cost"] == D("3408.875") and p["realized"] == 0
+        assert p["price"] == 650 and p["floating"] == D("491.125") and p["quote"]["price_kind"] == "bank_value"
         # A securities adapter cannot overwrite bank product quotes.
         s.ingest_quotes(db, [{"code": gold()["code"], "quote_time": T + timedelta(days=4), "current_price": 1}], "fake-stock-provider")
         assert current(db)["positions"][0]["price"] == 650

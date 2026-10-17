@@ -132,8 +132,9 @@ def save_opening(db, account_id, payload, correction=False, commit=True):
         seen.add(key(item))
         item = {name: item.get(name) for name in ("code", "name", "market", "asset_type", "currency", "unit", "quantity", "average_cost", "price", "price_at", "cost_cny_amount", "position_layer", "source_position_id")}
         item["quantity"] = str(number(item["quantity"], minimum=ZERO))
-        item["average_cost"] = None if item.get("average_cost") in (None, "") else str(number(item["average_cost"], minimum=ZERO))
-        item["cost_cny_amount"] = None if item.get("cost_cny_amount") in (None, "") else str(number(item["cost_cny_amount"], minimum=ZERO))
+        item["average_cost"] = None if item.get("average_cost") in (None, "") else str(number(item["average_cost"]))
+        item["cost_cny_amount"] = None if item.get("cost_cny_amount") in (None, "") else str(number(item["cost_cny_amount"]))
+        item["cost_method"] = "diluted"
         if item["currency"] == "CNY" and item["average_cost"] is not None:
             item["cost_cny_amount"] = str(number(item["average_cost"]) * number(item["quantity"]))
         if item.get("price") not in (None, ""):
@@ -142,7 +143,7 @@ def save_opening(db, account_id, payload, correction=False, commit=True):
     prices = list({key(asset(p)): p for p in prices}.values())
     cash = {currency(c): str(number(v, minimum=ZERO)) for c, v in payload.get("cash", {}).items()}
     liabilities = {currency(c): str(number(v, minimum=ZERO)) for c, v in payload.get("liabilities", {}).items()}
-    data = {"positions": positions, "cash": cash, "liabilities": liabilities, "effective_at": iso(at),
+    data = {"positions": positions, "cash": cash, "liabilities": liabilities, "cost_method": "diluted", "effective_at": iso(at),
             "source": str(payload.get("source") or "用户确认期初"), **quotes({"prices": prices, "fx": payload.get("fx", {})}, at)}
     if previous and previous.data.get("history_checkpoints"):
         data["history_checkpoints"] = deepcopy(previous.data["history_checkpoints"])
@@ -304,6 +305,16 @@ def save_event(db, payload, record_id=None, commit=True):
         data["currency"] = currency(data.get("currency", "CNY"))
         for field in ("amount", "fees"):
             data[field] = str(number(data.get(field, 0), minimum=ZERO))
+        if kind == "dividend":
+            if not str(data.get("code") or "").strip():
+                raise ValueError("现金分红请选择所属标的")
+            data = asset(data)
+            if data.get("cycle") not in (None, ""):
+                cycle = number(data["cycle"], minimum=Decimal(1))
+                if cycle != int(cycle):
+                    raise ValueError("持有阶段编号必须为正整数")
+                data["cycle"] = int(cycle)
+            data["require_attribution"] = True
         if kind in {"transfer", "position_transfer"}:
             if data.get("to_account_id") == account_id or not enrolled(db, str(data.get("to_account_id", ""))):
                 raise ValueError("转入端必须是另一个已建档账户")
@@ -387,11 +398,12 @@ def aggregate_assets(positions):
         if not active:
             continue
         p = {**active[0], "account_id": "all", "account_positions": active}
-        for field in ("quantity", "cost", "cost_cny", "market_value", "market_value_cny", "floating", "realized", "realized_cny", "position_weight"):
+        for field in ("quantity", "cost", "cost_cny", "market_value", "market_value_cny", "floating", "realized", "realized_cny", "dividends", "dividends_cny", "position_weight"):
             rows = group if field in {"realized", "realized_cny"} else active
             p[field] = sum((r[field] for r in rows), ZERO) if all(r[field] is not None for r in rows) else None
         p["average_cost"] = p["cost"] / p["quantity"] if p["cost"] is not None else None
-        p["holding_return"] = p["floating"] / p["cost"] if p["cost"] and p["floating"] is not None else None
+        p["diluted_cost"] = p["average_cost"]
+        p["holding_return"] = p["floating"] / p["cost"] if p["cost"] is not None and p["cost"] > ZERO and p["floating"] is not None else None
         merged.append(p)
     return sorted(merged, key=lambda p: p["market_value_cny"] or ZERO, reverse=True)
 
@@ -456,9 +468,9 @@ def source_opening(db, account_id):
     return public({"account_id": account_id, "effective_at": iso(datetime.now(timezone.utc)), "included": True,
         "positions": [{"code": p.code, "name": p.name, "market": p.market, "asset_type": p.asset_type,
             "unit": asset_unit(p.asset_type, p.unit), "currency": p.raw_currency or account.base_currency,
-            "quantity": str(p.quantity), "average_cost": str(p.average_cost) if p.cost_method == "average" else None,
+            "quantity": str(p.quantity), "average_cost": str(p.average_cost) if p.cost_method == "diluted" else None, "cost_method": p.cost_method,
             "price": str(p.current_price) if p.current_price else None, "price_at": iso(p.snapshot_time),
-            "cost_cny_amount": str(p.cost_cny_amount) if p.cost_cny_amount is not None else None,
+            "cost_cny_amount": str(p.cost_cny_amount) if p.cost_method == "diluted" and p.cost_cny_amount is not None else None,
             "source_position_id": p.id, "position_layer": p.position_layer} for p in rows],
         "cash": {account.base_currency: str(snapshot.cash if snapshot else account.cash)},
         "fx": {}, "source": "已有标准资料，待用户核对币种现金、期初均价和实际日期"})
@@ -488,8 +500,8 @@ def projection_positions(db, account_id=None, include_closed=False):
                 normalized_currency="CNY", exchange_rate_to_base=float(number(p["fx"]["rate"])) if p["fx"] else None,
                 position_weight=float(p["market_value_cny"] / total) if total and p["market_value_cny"] is not None else 0,
                 profit_loss_ratio=float(p["holding_return"]) if p["holding_return"] is not None else 0,
-                cost_method="average" if p["cost"] is not None else "unknown", cost_cny_amount=p["cost_cny"],
-                position_layer=p["position_layer"], layer_source="ledger", layer_confidence="高", layer_reason="平均成本账目",
+                cost_method="diluted" if p["cost"] is not None else "unknown", cost_cny_amount=p["cost_cny"],
+                position_layer=p["position_layer"], layer_source="ledger", layer_confidence="高", layer_reason="摊薄成本账目",
                 missing_market_code=p["asset_type"] == "precious_metal", snapshot_time=max(instant(p["last_at"]), instant(p["quote"]["at"]) if p["quote"] else instant(p["last_at"])), sync_id="portfolio_ledger", is_void=False,
                 first_buy_time=instant(p["first_at"]), last_trade_time=instant(p["last_at"]))
             row.ledger_result = public(p)
@@ -550,10 +562,10 @@ def reconcile(db, account_id):
         if quantity_differs or cost_differs:
             differences.append({**item, "status": "mismatch", "ledger_quantity": str(quantity),
                 "ledger_average_cost": str(average) if average is not None else None,
-                "reason": "同一时点的数量不同" if quantity_differs else "同一时点的平均成本不同"})
+                "reason": "同一时点的数量不同" if quantity_differs else "同一时点的摊薄成本不同"})
     for row in positions_as_of(db, account_id):
         compare(row.code, row.raw_currency or account.base_currency, asset_unit(row.asset_type, row.unit),
-                row.snapshot_time, row.quantity, row.average_cost, row.cost_method == "average")
+                row.snapshot_time, row.quantity, row.average_cost, row.cost_method == "diluted")
     # Only a full observation proves that unlisted assets were absent. Partial imports do not.
     full_scopes = {}
     for batch in db.scalars(select(HoldingObservationBatch).where(HoldingObservationBatch.account_id == account_id,

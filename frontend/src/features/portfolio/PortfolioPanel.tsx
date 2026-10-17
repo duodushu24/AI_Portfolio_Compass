@@ -1,6 +1,6 @@
 import { assetUnit, priceUnit, quoteKindLabel, unitLabel } from "./assets";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Checkbox, Drawer, Empty, Select, Table, Tag, Tooltip } from "@arco-design/web-react";
+import { Alert, Drawer, Empty, Select, Table, Tag, Tooltip } from "@arco-design/web-react";
 import { portfolioApi } from "./api";
 import type { Asset, Point, Portfolio } from "./types";
 import "./portfolio.css";
@@ -38,23 +38,21 @@ function Chart({ points, metric, onSelect, assetCode = "" }: { points: Point[]; 
 }
 
 export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = {}, asOf }: { assets: Asset[]; onOpen?: (code: string) => void; maskAssets?: boolean; accountNames?: Record<string, string>; asOf?: string }) {
-  const [showRealized, setShowRealized] = useState(true);
   const money = (v: string | null, digits = 2) => maskAssets ? "••••" : v == null ? "—" : Number(v).toLocaleString("zh-CN", { maximumFractionDigits: digits });
   const signed = (v: string | null) => <span className={!maskAssets && v != null ? Number(v) > 0 ? "gain" : Number(v) < 0 ? "loss" : "" : ""}>{money(v)}</span>;
   return <div className="portfolio-holdings-table">
-    <div className="portfolio-column-controls"><Checkbox checked={showRealized} onChange={setShowRealized}>显示已实现盈亏</Checkbox></div>
-    <Table className="portfolio-compact-table" tableLayoutFixed rowKey={a => `${a.account_id}:${a.code}:${a.currency}:${a.unit}`} data={assets} pagination={{ pageSize: 10 }} scroll={{ x: showRealized ? 1110 : 1000 }}
+    <Table className="portfolio-compact-table" tableLayoutFixed rowKey={a => `${a.account_id}:${a.code}:${a.currency}:${a.unit}`} data={assets} pagination={{ pageSize: 10 }} scroll={{ x: 1110 }}
       expandProps={{ rowExpandable: (a: Asset) => (a.account_positions?.length ?? 0) > 1 }}
       expandedRowRender={a => a.account_positions && <AssetTable assets={a.account_positions} onOpen={onOpen} maskAssets={maskAssets} accountNames={accountNames} asOf={asOf} />}
       columns={[
       { title: "标的", width: 190, render: (_, a: Asset) => <div className="portfolio-asset-cell"><button type="button" className="portfolio-name-button" onClick={() => onOpen?.(a.code)} disabled={!onOpen}>{a.name || a.code}</button><small>{a.code}</small><small>{a.account_id === "all" ? `${a.account_positions?.length ?? 1} 个账户` : accountLabel(a.account_id, accountNames)}</small></div> },
       { title: "币种", dataIndex: "currency", width: 65 },
       { title: "数量", align: "right", width: 85, render: (_, a: Asset) => <Tooltip content={`数量单位：${unitLabel(a.unit)}`}><span>{money(a.quantity, 6)}</span></Tooltip> },
-      { title: "成本价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={`平均成本的单位价格，${priceUnit(a.currency, a.unit)}`}><span>{money(a.average_cost, 4)}</span></Tooltip> },
+      { title: "摊薄成本价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={`本阶段买入支出减卖出净收入，再除以剩余数量；现金分红不改成本。单位价格，${priceUnit(a.currency, a.unit)}`}><span>{money(a.average_cost, 4)}</span></Tooltip> },
       { title: "市值价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={a.quote ? `${quoteKindLabel(a.quote.price_kind)} · ${a.quote.source} · ${timeLabel(a.quote.at)} · ${priceUnit(a.currency, a.unit)}` : "缺少报价"}><span>{money(a.price, 4)}<sup className="portfolio-quote-mark">{!a.quote ? "缺价" : a.quote.price_kind === "estimate" ? "估" : new Date(a.quote.at).toDateString() !== new Date(asOf || Date.now()).toDateString() ? "旧" : "·"}</sup></span></Tooltip> },
       { title: "浮动盈亏", align: "right", width: 105, render: (_, a: Asset) => signed(a.floating) },
       { title: "持仓收益率", align: "right", width: 100, render: (_, a: Asset) => <span className={a.holding_return == null ? "" : Number(a.holding_return) >= 0 ? "gain" : "loss"}>{percent(a.holding_return)}</span> },
-      ...(showRealized ? [{ title: "已实现盈亏", align: "right" as const, width: 110, render: (_: unknown, a: Asset) => signed(a.realized) }] : []),
+      { title: "本阶段分红", align: "right", width: 110, render: (_, a: Asset) => signed(a.dividends) },
       { title: "持仓市值（CNY）", align: "right", width: 130, render: (_, a: Asset) => money(a.market_value_cny) },
       { title: "仓位", align: "right", width: 80, render: (_, a: Asset) => percent(a.position_weight) },
     ]} />
@@ -70,10 +68,10 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
   const accountName = (id: string) => accountLabel(id, data?.account_names);
   const beginning = data?.points.find(p => p.interval === current?.interval && p.opening_assets != null);
   return <section className="panel portfolio-panel stack">
-    <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "整体组合收益"}</h3><small>{code ? "平均成本口径；清仓利润保留，重新买入开启新持有阶段" : "统计区间内的净值收益 · 包含现金、资金进出与汇率 · CNY"}</small></div>{!code && <Select value={metric} onChange={setMetric} options={[{ value: "return", label: "累计组合收益率" }, { value: "profit", label: "累计组合盈亏金额" }]} />}</div>
+    <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "整体组合收益"}</h3><small>{code ? "唯一摊薄成本口径；现金分红不改成本，清仓后再买入重新计算" : "统计区间内的净值收益 · 包含现金、资金进出与汇率 · CNY"}</small></div>{!code && <Select value={metric} onChange={setMetric} options={[{ value: "return", label: "累计组合收益率" }, { value: "profit", label: "累计组合盈亏金额" }]} />}</div>
     {error && <Alert type="error" content={error} />}
     {!code && current && <div className="portfolio-metrics"><div>组合总资产<strong>{money(current.total_assets)} CNY</strong></div><div>累计组合收益率<strong>{percent(current.cumulative_return)}</strong></div><div>累计组合盈亏<strong>{money(current.profit)} CNY</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}
-    {!code && current && <div className="portfolio-profit-basis"><p>组合盈亏从期初市值和现金开始统计；持仓的浮动／已实现盈亏按平均成本计算，可能包含期初已有浮盈或浮亏。</p><details><summary>查看组合盈亏计算依据</summary><p>收益起点：{beginning ? timeLabel(beginning.observed_at) : "期初估值待补齐"} · 期初总资产 {money(current.opening_assets)} CNY · 当前总资产 {money(current.total_assets)} CNY · 净外部入金 {money(current.net_flows)} CNY</p><p>组合盈亏＝当前总资产－期初总资产－期间净外部入金。买卖产生的现金已计入总资产，不另加一遍卖出利润。</p></details></div>}
+    {!code && current && <div className="portfolio-profit-basis"><p>组合盈亏从期初市值和现金开始统计；浮动盈亏包含当前阶段的部分卖出盈亏，不含现金分红；清仓收益在已清仓查询中展示，包含该阶段已收分红。</p><details><summary>查看组合盈亏计算依据</summary><p>收益起点：{beginning ? timeLabel(beginning.observed_at) : "期初估值待补齐"} · 期初总资产 {money(current.opening_assets)} CNY · 当前总资产 {money(current.total_assets)} CNY · 净外部入金 {money(current.net_flows)} CNY</p><p>组合盈亏＝当前总资产－期初总资产－期间净外部入金。买卖产生的现金已计入总资产，不另加一遍卖出利润。</p></details></div>}
     {current && (current.issues.length > 0 || current.performance_issues.length > 0) && <Alert type="warning" content={<details><summary>{current.quality === "missing" ? "资料缺失，完整资产及收益不可用" : "部分报价沿用旧值或使用估算；查看依据"}</summary>{[...current.issues, ...current.performance_issues].map(i => <p key={i}>{i}</p>)}</details>} />}
     {current?.ended && <Alert type="info" content="本连续区间已结束，保留最后有效收益；重新入金会开始新连续区间。" />}
     <Chart points={data?.points ?? []} metric={metric} assetCode={code} onSelect={setSelected} />

@@ -102,6 +102,9 @@ class Prices:
                     "market": p["market"], "asset_type": p.get("asset_type", "stock"), "unit": p["unit"], "currency": p["currency"],
                     "quantity": q, "cost": cost, "cost_cny": p["cost_cny"],
                     "average_cost": cost / q if cost is not None and q else None,
+                    "diluted_cost": cost / q if cost is not None and q else None, "cost_method": "diluted",
+                    "dividends": p["cycle_dividends"] if q else ZERO,
+                    "dividends_cny": p["cycle_dividends_cny"] if q else ZERO,
                     "price": price, "market_value": mv, "market_value_cny": cny,
                     "floating": native_gain, "holding_return": native_gain / cost if q and cost is not None and cost > ZERO and native_gain is not None else None,
                     "floating_cny": cny - p["cost_cny"] if q and cny is not None and p["cost_cny"] is not None else None,
@@ -126,6 +129,9 @@ class Prices:
                 liabilities.append({"account_id": account_id, "currency": curr, "amount": amount, "value_cny": cny})
                 if cny is not None:
                     total -= cny
+        for account_id in sorted(accounts):
+            if ledger.accounts[account_id].get("unallocated_dividends"):
+                issues.append(f"{account_id} 有分红尚未归属标的/持有阶段；现金已计入，清仓收益待核对")
         complete = not any("缺少" in s for s in issues)
         for p in positions:
             p["position_weight"] = p["market_value_cny"] / total if complete and total > ZERO and p["market_value_cny"] is not None else None
@@ -208,7 +214,9 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
                 value = number(data["quantity"]) * number(quote["price"]) * rate if p and quote and rate is not None else None
                 delta = int(data["to_account_id"] in before_scope) - int(account_id in before_scope)
                 flow = value * delta if value is not None else None if delta else ZERO
-            ledger.event(account_id, kind, data, f"event:{record_id}", iso(at))
+            rate_item = prices.fx.get(data.get("currency", "CNY"))
+            event_fx = prices.rate(data.get("currency", "CNY")) if data.get("currency", "CNY") == "CNY" or rate_item and instant(rate_item["at"]) == at else None
+            ledger.event(account_id, kind, data, f"event:{record_id}", iso(at), event_fx)
             if kind in {"deposit", "withdrawal", "transfer"}:
                 factor = int(account_id in before_scope) * (1 if kind == "deposit" else -1)
                 if kind == "transfer":

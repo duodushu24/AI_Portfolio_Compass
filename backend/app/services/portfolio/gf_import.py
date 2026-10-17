@@ -76,7 +76,7 @@ def prepare(flows, statements):
             ignored.append({**ref, "business": business})
             continue
         data = {"currency": "CNY", "amount": str(abs(amount)), "fees": "0", "source": "广发对账单", "import_ref": ref}
-        if business in {"证券买入", "证券卖出", "红股入账"}:
+        if business in {"证券买入", "证券卖出", "红股入账", "股息入账"}:
             if not s:
                 raise ValueError("证券业务缺少对应对账单")
             code = str(r["证券代码"]).strip()
@@ -121,6 +121,29 @@ def prepare(flows, statements):
             "start": iso(stamp(flows[0]["发生日期"])), "daily_cash": daily,
             "expected": {"cash": str(cash), "positions": positions, "cost": str(costs)},
             "counts": dict(counts), "totals": {k: str(v) for k, v in totals.items()}}
+
+
+def link_existing_dividends(db, account_id, batch):
+    """Enrich old imports with source-confirmed security metadata, never new cash."""
+    sources = {r["data"]["import_ref"]["source_key"]: r["data"]
+               for r in batch["records"] if r["kind"] == "dividend"}
+    changed = 0
+    for row in db.scalars(select(PortfolioEvent).where(PortfolioEvent.account_id == account_id,
+            PortfolioEvent.kind == "dividend", PortfolioEvent.is_void.is_(False))):
+        ref = row.data.get("import_ref", {})
+        source = sources.get(ref.get("source_key"))
+        if source is None:
+            continue
+        if ref.get("batch") != batch["digest"] or any(number(row.data.get(f, 0)) != number(source.get(f, 0)) for f in ("amount", "fees")):
+            raise ValueError("已有分红与原始来源冲突，不能关联或重复入账")
+        if row.data.get("code") and row.data["code"] != source["code"]:
+            raise ValueError("已有分红标的与来源冲突")
+        enriched = {**row.data, **{f: source[f] for f in ("code", "name", "market", "asset_type", "unit", "quantity")}}
+        if enriched != row.data:
+            row.data = enriched
+            changed += 1
+    db.flush()
+    return changed
 
 
 def replace_ledger(db, account_id, batch, *, commit=False):
@@ -191,7 +214,7 @@ def replace_ledger(db, account_id, batch, *, commit=False):
             raise ValueError("末端成本核对失败")
         report = public({"status": "imported" if commit else "preview", "records": len(batch["records"]),
                          "cash": book["cash"], "positions": actual, "cost": cost,
-                         "realized_sales": sum((p["realized"] for p in book["positions"].values()), ZERO),
+                         "closed_profit": sum((p["realized"] for p in book["positions"].values()), ZERO),
                          "daily_checks": len(batch["daily_cash"]), "ignored": len(batch["ignored"])})
         if commit:
             db.commit()

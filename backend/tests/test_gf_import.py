@@ -6,9 +6,9 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.database import Base
-from app.models import Account, Deal, PortfolioOpening
+from app.models import Account, Deal, PortfolioEvent, PortfolioOpening
 from app.services.portfolio import service
-from app.services.portfolio.gf_import import prepare, replace_ledger
+from app.services.portfolio.gf_import import link_existing_dividends, prepare, replace_ledger
 
 
 def sources():
@@ -52,8 +52,8 @@ def test_joint_import_cash_cost_scope_and_idempotency(db):
     batch = prepare(*sources())
     report = replace_ledger(db, "gf", batch, commit=True)
     assert report["records"] == 6 and report["cash"]["CNY"] == "864.0"
-    assert D(report["cost"]) == D("50.25")
-    assert D(report["realized_sales"]) == D("9.25")
+    assert D(report["cost"]) == D("41")
+    assert D(report["closed_profit"]) == 0
     overview = service.overview(db, "gf")
     assert overview["current"]["total_assets"] is None
     assert all(p["cumulative_return"] is None and p["profit"] is None for p in overview["points"])
@@ -140,3 +140,19 @@ def test_reimport_detects_edited_records_and_opening_keeps_price_policy(db):
     db.commit()
     with pytest.raises(ValueError, match="现有账目已更改"):
         replace_ledger(db, "gf", batch, commit=True)
+
+
+def test_link_legacy_cash_dividend_adds_metadata_without_reposting_cash(db):
+    batch = prepare(*sources())
+    replace_ledger(db, "gf", batch, commit=True)
+    row = db.scalar(select(PortfolioEvent).where(PortfolioEvent.kind == "dividend"))
+    row.data = {k: v for k, v in row.data.items() if k not in {"code", "name", "market", "asset_type", "unit", "quantity"}}
+    db.commit()
+    before = service.calculate(db, "gf")["ledger"].accounts["gf"]["cash"]["CNY"]
+    assert link_existing_dividends(db, "gf", batch) == 1
+    service.validate(db)
+    db.commit()
+    result = service.calculate(db, "gf")
+    assert result["ledger"].accounts["gf"]["cash"]["CNY"] == before
+    assert result["current"]["positions"][0]["dividends"] == 5
+    assert link_existing_dividends(db, "gf", batch) == 0
