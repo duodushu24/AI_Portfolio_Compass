@@ -1,7 +1,8 @@
 import { request } from "../../api";
-import type { HistoryPreview, Opening, Portfolio, Reconciliation } from "./types";
+import type { ClosedQuery, HistoryPreview, Opening, Portfolio, Reconciliation } from "./types";
 const write = (method: string, payload: unknown) => ({ method, body: JSON.stringify(payload) });
 export const portfolioApi = {
+  closed: (filters: Record<string, string>) => request<ClosedQuery>(`/api/portfolio/closed?${new URLSearchParams(filters)}`),
   overview: (accountId = "all", code = "", at = "") => request<Portfolio>(`/api/portfolio/overview?${new URLSearchParams({ account_id: accountId, ...(code ? { code } : {}), ...(at ? { at } : {}) })}`),
   opening: (accountId: string) => request<{ confirmed: boolean; opening: Opening; reconciliation: Reconciliation[] }>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/opening`),
   saveOpening: (accountId: string, data: unknown, correction: boolean) => request<Portfolio>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/opening?correction=${correction}`, write("PUT", data)),

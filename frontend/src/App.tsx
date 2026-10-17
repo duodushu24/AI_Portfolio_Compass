@@ -13,7 +13,6 @@ import {
   Detail,
   FutuConnectionCard,
   Home,
-  Positions,
   ProfilePage,
   ReviewPage,
   displayCurrencyOptions,
@@ -25,7 +24,7 @@ import {
   setAssetMaskEnabled,
 } from "./features/portfolioViews";
 
-const nav = ["首页", "持仓", "复盘", "组合诊断", "账户与数据", "AI与高级设置"];
+const nav = ["首页", "资产组合", "复盘", "组合诊断", "账户与数据", "AI与高级设置"];
 type AppTheme = "light" | "dark";
 
 type ConfirmOptions = {
@@ -44,7 +43,7 @@ function App() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [selectedCode, setSelectedCode] = useState("");
-  const [detailReturnTarget, setDetailReturnTarget] = useState("持仓");
+  const [detailReturnTarget, setDetailReturnTarget] = useState("资产组合");
   const [detail, setDetail] = useState<{ position: Position; account_positions?: Position[]; cards: DecisionCard[]; news: NewsItem[]; ai_analysis: AIAnalysis | null } | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [tradeReviews, setTradeReviews] = useState<TradeReviewList | null>(null);
@@ -116,7 +115,7 @@ function App() {
     if (positionData.status === "fulfilled") {
       setPositions(positionData.value.items);
       if (!selectedCode && positionData.value.items.length) setSelectedCode(positionData.value.items[0].code);
-    } else failedSections.push("持仓");
+    } else failedSections.push("资产组合");
     if (reviewData.status === "fulfilled") setReview(reviewData.value);
     else failedSections.push("复盘");
     if (tradeReviewData.status === "fulfilled") setTradeReviews(tradeReviewData.value);
@@ -276,7 +275,7 @@ function App() {
 
   const content = useMemo(() => {
     if (active === "首页") return <Home dashboard={scopedDashboard} positions={scopedPositions} tradeReviews={scopedTradeReviews} workflowRuns={workflowRuns} accounts={accounts} selectedAccount={selectedAccount} maskAssets={maskAssets} activeCurrency={activeCurrency} displayRate={displayRate} emptySystem={emptySystem} health={health} onFutuRefresh={async () => { await loadAll(); }} onFutuSync={refresh} onGenerateDiagnosis={() => { setProfilePageIntent({ kind: "generate", requestId: Date.now() }); setActive("组合诊断"); }} onOpenDiagnosisReport={(runId) => { setProfilePageIntent({ kind: "open", runId, requestId: Date.now() }); setActive("组合诊断"); }} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("首页"); setActive("标的详情"); }} />;
-    if (active === "持仓") return <div className="stack"><ReturnHistoryPanel key={workspace} selectedAccount={selectedAccount} accounts={accounts} maskAssets={maskAssets} onChanged={loadAll} onOpen={code => { setSelectedCode(code); setDetailReturnTarget("持仓"); setActive("标的详情"); }} /><Positions positions={scopedPositions} layer={layer} setLayer={setLayer} accounts={accounts} selectedAccount={selectedAccount} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("持仓"); setActive("标的详情"); }} /></div>;
+    if (active === "资产组合") return <ReturnHistoryPanel key={workspace} accounts={accounts} maskAssets={maskAssets} onChanged={loadAll} onOpen={code => { setSelectedAccount("all"); setSelectedCode(code); setDetailReturnTarget("资产组合"); setActive("标的详情"); }} />;
     if (active === "复盘") return <ReviewWorkspace key={workspace} registerLeaveGuard={registerDiaryLeaveGuard} canLeaveCurrent={canLeaveCurrent}><ReviewPage review={review} tradeReviews={scopedTradeReviews} selectedAccount={selectedAccount} accounts={accounts} refreshingMarketData={refreshingTradeMarketData} onRefreshMarketData={refreshTradeReviewMarketData} onSaveIntent={async (reviewId, note, tags, plan) => { await api.updateTradeReviewIntent(reviewId, note, tags, plan); await loadAll(); }} /></ReviewWorkspace>;
     if (active === "组合诊断") return <ProfilePage profile={profile} positions={scopedPositions} selectedAccount={selectedAccount} accounts={accounts} health={health} setNotice={setNotice} requestConfirm={requestConfirm} homeIntent={profilePageIntent} onHomeIntentHandled={() => setProfilePageIntent(null)} onWorkflowRunsChanged={setWorkflowRuns} />;
     if (active === "标的详情") return <Detail detail={detail} selectedAccount={selectedAccount} onSaveLayer={saveLayer} onGenerateAi={generateAiAnalysis} generatingAi={generatingAi} setDetail={setDetail} setNotice={setNotice} />;
@@ -284,12 +283,12 @@ function App() {
     return <AdvancedSettingsPage health={health} setNotice={setNotice} requestConfirm={requestConfirm} onDelete={async () => { await api.deleteLocalData(); setNotice("本地数据已删除"); await loadAll(); }} />;
   }, [active, dashboard, scopedDashboard, accounts, selectedAccount, health, positions, scopedPositions, review, scopedTradeReviews, profile, workflowRuns, profilePageIntent, layer, detail, selectedCode, loading, generatingAi, refreshingTradeMarketData, maskAssets, activeCurrency, displayRate, emptySystem, workspace, registerDiaryLeaveGuard, canLeaveCurrent]);
 
-  const showPortfolioHeaderControls = ["首页", "持仓", "复盘"].includes(active);
+  const showPortfolioHeaderControls = ["首页", "资产组合", "复盘"].includes(active);
 
   const headerExtra = showPortfolioHeaderControls ? (
     <>
       <Button className="pro-mask-assets-button" onClick={() => setMaskAssets(!maskAssets)}>{maskAssets ? "显示资产" : "隐藏资产"}</Button>
-      <CurrencyPill currencies={displayCurrencies} activeCurrency={activeCurrency} setDisplayCurrency={setDisplayCurrency} />
+      {active !== "资产组合" && <CurrencyPill currencies={displayCurrencies} activeCurrency={activeCurrency} setDisplayCurrency={setDisplayCurrency} />}
     </>
   ) : null;
 
@@ -303,7 +302,7 @@ function App() {
           detailReturnTarget={detailReturnTarget}
           accounts={accounts}
           selectedAccount={selectedAccount}
-          showAccountSwitcher={showPortfolioHeaderControls}
+          showAccountSwitcher={showPortfolioHeaderControls && active !== "资产组合"}
           headerExtra={headerExtra}
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === "dark" ? "light" : "dark")}

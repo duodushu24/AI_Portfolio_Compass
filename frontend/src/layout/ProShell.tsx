@@ -16,7 +16,7 @@ const { Header, Sider, Content } = Layout;
 
 const pageIconMap: Record<string, ReactNode> = {
   首页: <IconHome />,
-  持仓: <IconCompass />,
+  资产组合: <IconCompass />,
   复盘: <IconDashboard />,
   组合诊断: <IconRobot />,
   账户与数据: <IconStorage />,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -356,12 +356,88 @@ def overview(db, scope="all", until=None, code=None):
     records += [{"id": e.id, "category": "event", "kind": e.kind, "account_id": e.account_id,
                  "effective_at": iso(e.effective_at), "data": e.data, "is_void": e.is_void}
                 for e in events if (e.account_id in ids or e.data.get("to_account_id") in ids) and (not code or e.data.get("code") == code or any(p["code"] == code for p in e.data.get("prices", [])))]
+    now = instant(result["as_of"]) if result["as_of"] else datetime.now(timezone.utc).replace(tzinfo=None)
+    included_ids = {o.account_id for o in openings if o.included_at and o.included_at <= now and (not o.excluded_at or o.excluded_at > now)}
+    current = points[-1] if points else None
     return public({"scope": scope, "currency": "CNY", "account_names": account_names,
+        "coverage": {"included_accounts": sorted(included_ids), "unenrolled_accounts": [a.account_id for a in db.scalars(select(Account)) if a.account_id not in {o.account_id for o in openings}]},
+        "holdings": aggregate_assets(current["positions"]) if current else [],
+        "allocation": allocation(current),
         "current": points[-1] if points else None, "points": points,
         "records": sorted(records, key=lambda r: (r["effective_at"], r["category"], r["id"]), reverse=True),
         "openings": [{"account_id": o.account_id, "effective_at": iso(o.effective_at), "included": o.included_at is not None,
                       "included_at": iso(o.included_at) if o.included_at else None, "excluded_at": iso(o.excluded_at) if o.excluded_at else None,
                       **o.data} for o in openings if o.account_id in ids]})
+
+
+def aggregate_assets(positions):
+    """Merge compatible holdings on the server; keep their account rows for drilldown."""
+    groups = {}
+    for p in positions:
+        groups.setdefault(key(p), []).append(p)
+    merged = []
+    for group in groups.values():
+        active = [p for p in group if p["quantity"] > ZERO]
+        if not active:
+            continue
+        p = {**active[0], "account_id": "all", "account_positions": active}
+        for field in ("quantity", "cost", "cost_cny", "market_value", "market_value_cny", "floating", "realized", "realized_cny", "position_weight"):
+            rows = group if field in {"realized", "realized_cny"} else active
+            p[field] = sum((r[field] for r in rows), ZERO) if all(r[field] is not None for r in rows) else None
+        p["average_cost"] = p["cost"] / p["quantity"] if p["cost"] is not None else None
+        p["holding_return"] = p["floating"] / p["cost"] if p["cost"] and p["floating"] is not None else None
+        merged.append(p)
+    return sorted(merged, key=lambda p: p["market_value_cny"] or ZERO, reverse=True)
+
+
+def allocation(current):
+    if not current or current["total_assets"] is None or current["total_assets"] <= ZERO:
+        return []
+    amounts = {}
+    for p in current["positions"]:
+        if p["quantity"]:
+            amounts[p["asset_type"]] = amounts.get(p["asset_type"], ZERO) + p["market_value_cny"]
+    for field in ("cash", "pending", "liabilities"):
+        value = sum((p["value_cny"] for p in current[field]), ZERO)
+        if value:
+            amounts[field] = value if field != "liabilities" else -value
+    return [{"type": kind, "weight": amount / current["total_assets"]} for kind, amount in amounts.items()]
+
+
+def closed_positions(db, account_id="all", start=None, end=None, keyword=""):
+    start, end = instant(start) if start else None, instant(end) if end else None
+    if start and end and start > end:
+        raise ValueError("开始日期不能晚于结束日期")
+    result = calculate(db)
+    names = {a.account_id: a.display_name or a.institution or "未命名账户" for a in db.scalars(select(Account))}
+    items = []
+    for aid, book in result["ledger"].accounts.items():
+        if account_id != "all" and aid != account_id:
+            continue
+        for p in book["positions"].values():
+            if keyword.strip().casefold() not in f"{p['code']} {p['name']}".casefold():
+                continue
+            for c in p["closed_cycles"]:
+                at = instant(c["closed_at"])
+                if start and at < start or end and at > end:
+                    continue
+                # A snapshot/transfer is not proof of the original purchase date.
+                items.append({**c, "account_id": aid, "account_name": names.get(aid, "未命名账户"),
+                    **{n: p[n] for n in ("code", "name", "currency", "unit")},
+                    "holding_days": (at.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=8))).date()
+                        - instant(c["opened_at"]).replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=8))).date()).days if c["opening_kind"] == "buy" else None})
+    items.sort(key=lambda r: (r["closed_at"], r["account_id"], r["code"], r["cycle"]), reverse=True)
+    known = [r for r in items if r["realized"] is not None]
+    cny = [r for r in items if r["realized_cny"] is not None]
+    native = {}
+    for row in known:
+        native[row["currency"]] = native.get(row["currency"], ZERO) + row["realized"]
+    return public({"items": items, "summary": {"count": len(items), "symbol_count": len({r["code"] for r in items}),
+        "win_rate": number(sum(r["realized"] > ZERO for r in known)) / len(known) if known else None,
+        "known_count": len(known), "unknown_count": len(items) - len(known),
+        "realized_cny": sum((r["realized_cny"] for r in cny), ZERO) if len(cny) == len(items) else None,
+        "known_realized_cny": sum((r["realized_cny"] for r in cny), ZERO),
+        "missing_cny_count": len(items) - len(cny), "by_currency": native}})
 
 
 def source_opening(db, account_id):

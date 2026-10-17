@@ -21,6 +21,12 @@ def overview(account_id: str = "all", at: datetime | None = None, code: str | No
     return call(lambda: service.overview(db, account_id, at, code))
 
 
+@router.get("/closed")
+def closed(account_id: str = "all", start: datetime | None = None, end: datetime | None = None,
+           keyword: str = "", db: Session = Depends(get_db)):
+    return call(lambda: service.closed_positions(db, account_id, start, end, keyword))
+
+
 @router.get("/accounts/{account_id}/opening")
 def opening(account_id: str, db: Session = Depends(get_db)):
     result = service.overview(db, account_id)["openings"]

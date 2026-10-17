@@ -50,7 +50,7 @@ class Ledger:
             book["positions"][key(item)] = {**deepcopy(item), "quantity": q, "cost": cost,
                 "cost_cny": None if item.get("cost_cny_amount") is None else number(item["cost_cny_amount"]),
                 "realized": ZERO, "realized_cny": ZERO, "cycle": 1, "first_at": data["effective_at"], "last_at": data["effective_at"],
-                "cycle_realized": ZERO, "cycle_disposed_cost": ZERO, "closed_cycles": []}
+                "cycle_realized": ZERO, "cycle_realized_cny": ZERO, "cycle_disposed_cost": ZERO, "cycle_trades": [], "opening_kind": "snapshot", "closed_cycles": []}
         self.accounts[account_id] = book
 
     def cash(self, account_id, curr, delta):
@@ -74,18 +74,21 @@ class Ledger:
         if p is None:
             p = {**deepcopy(data), "quantity": ZERO, "cost": ZERO, "cost_cny": ZERO,
                  "realized": ZERO, "realized_cny": ZERO, "cycle": 0, "first_at": at, "last_at": at,
-                 "cycle_realized": ZERO, "cycle_disposed_cost": ZERO, "closed_cycles": []}
+                 "cycle_realized": ZERO, "cycle_realized_cny": ZERO, "cycle_disposed_cost": ZERO, "cycle_trades": [], "opening_kind": "buy", "closed_cycles": []}
             book["positions"][k] = p
         q, price, fee = (number(data[n]) for n in ("quantity", "price", "fees"))
         before = deepcopy(p)
         amount = q * price
         gain = None
+        detail = {"record_id": data.get("record_id"), "at": at, "side": data["side"],
+                  "quantity": q, "price": price, "fees": fee, "disposed_cost": None, "realized": None}
         if data["side"] == "BUY":
             if not p["quantity"]:
                 p["cycle"] += 1
                 p["first_at"] = at
                 p["cost"], p["cost_cny"] = ZERO, ZERO
-                p["cycle_realized"], p["cycle_disposed_cost"] = ZERO, ZERO
+                p["cycle_realized"], p["cycle_disposed_cost"], p["cycle_realized_cny"] = ZERO, ZERO, ZERO
+                p["cycle_trades"], p["opening_kind"] = [], "buy"
             if p["cost"] is not None:
                 p["cost"] += amount + fee
             p["cost_cny"] = p["cost_cny"] + (amount + fee) * fx if p["cost_cny"] is not None and fx is not None else None
@@ -98,6 +101,7 @@ class Ledger:
             else:
                 self.cash(account_id, data["currency"], -amount - fee)
             p["quantity"] += q
+            p["cycle_trades"].append(detail)
         else:
             if q > p["quantity"] or not p["quantity"]:
                 raise ValueError(f"{data['code']} 卖出数量超过此时点可用持仓")
@@ -108,6 +112,7 @@ class Ledger:
             p["cycle_disposed_cost"] = p["cycle_disposed_cost"] + disposed if p["cycle_disposed_cost"] is not None and disposed is not None else None
             p["realized"] = p["realized"] + gain if p["realized"] is not None and gain is not None else None
             gain_cny = (amount - fee) * fx - disposed_cny if disposed_cny is not None and fx is not None else None
+            p["cycle_realized_cny"] = p["cycle_realized_cny"] + gain_cny if p["cycle_realized_cny"] is not None and gain_cny is not None else None
             p["realized_cny"] = p["realized_cny"] + gain_cny if p["realized_cny"] is not None and gain_cny is not None else None
             p["quantity"] -= q
             p["cost"] = p["cost"] - disposed if disposed is not None else None
@@ -118,9 +123,11 @@ class Ledger:
                 book["pending"][str(data["record_id"])] = {"amount": amount - fee, "currency": data["currency"], "kind": "redemption", "code": data["code"]}
             else:
                 self.cash(account_id, data["currency"], amount - fee)
+            p["cycle_trades"].append({**detail, "disposed_cost": disposed, "realized": gain})
             if not p["quantity"]:
                 p["closed_cycles"].append({"cycle": p["cycle"], "opened_at": p["first_at"], "closed_at": at,
-                    "realized": p["cycle_realized"], "disposed_cost": p["cycle_disposed_cost"],
+                    "realized": p["cycle_realized"], "realized_cny": p["cycle_realized_cny"], "disposed_cost": p["cycle_disposed_cost"],
+                    "opening_kind": p["opening_kind"], "trades": deepcopy(p["cycle_trades"]),
                     "return": p["cycle_realized"] / p["cycle_disposed_cost"] if p["cycle_realized"] is not None and p["cycle_disposed_cost"] is not None and p["cycle_disposed_cost"] > ZERO else None})
                 p["cost"], p["cost_cny"] = ZERO, ZERO
         p["last_at"] = at
@@ -174,7 +181,7 @@ class Ledger:
                 moved = deepcopy(p)
                 f = q / p["quantity"]
                 moved.update(quantity=q, realized=ZERO, realized_cny=ZERO, cycle_realized=ZERO,
-                             cycle_disposed_cost=ZERO, closed_cycles=[])
+                             cycle_realized_cny=ZERO, cycle_disposed_cost=ZERO, cycle_trades=[], opening_kind="transfer", closed_cycles=[])
                 for name in ("cost", "cost_cny"):
                     moved[name] = p[name] * f if p[name] is not None else None
                     p[name] = p[name] - moved[name] if moved[name] is not None else None
@@ -183,7 +190,8 @@ class Ledger:
                     if not other["quantity"]:
                         other["cycle"] += 1
                         other["first_at"] = at
-                        other["cycle_realized"], other["cycle_disposed_cost"] = ZERO, ZERO
+                        other["cycle_realized"], other["cycle_disposed_cost"], other["cycle_realized_cny"] = ZERO, ZERO, ZERO
+                        other["cycle_trades"], other["opening_kind"] = [], "transfer"
                     other["quantity"] += q
                     for name in ("cost", "cost_cny"):
                         other[name] = other[name] + moved[name] if other[name] is not None and moved[name] is not None else None

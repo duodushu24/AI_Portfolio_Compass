@@ -1,17 +1,38 @@
-import { useState } from "react";
-import { Button, Drawer, Table } from "@arco-design/web-react";
+import { useEffect, useState } from "react";
+import { Alert, Button, Drawer, Input, Select, Table } from "@arco-design/web-react";
 import { api, AccountSummary, ReturnPoint, HoldingHistoryItem } from "../api";
-import { accountLabel, PortfolioPanel, timeLabel } from "./portfolio/PortfolioPanel";
+import { accountLabel, AssetTable, percent, PortfolioPanel, timeLabel } from "./portfolio/PortfolioPanel";
+
+import { portfolioApi } from "./portfolio/api";
+import type { Portfolio } from "./portfolio/types";
+import { assetOptions } from "./portfolio/assets";
 
 // Old observations remain readable source material; the account ledger owns new writes.
-export function ReturnHistoryPanel({ selectedAccount, accounts, maskAssets, onChanged: _onChanged, onOpen }: { selectedAccount: string; accounts: AccountSummary[]; maskAssets: boolean; onChanged: () => Promise<void>; onOpen?: (code: string) => void }) {
+export function ReturnHistoryPanel({ accounts, maskAssets, onChanged: _onChanged, onOpen }: { accounts: AccountSummary[]; maskAssets: boolean; onChanged: () => Promise<void>; onOpen?: (code: string) => void }) {
   const [legacy, setLegacy] = useState<{ points: ReturnPoint[]; holdings: HoldingHistoryItem[] } | null>(null), [error, setError] = useState("");
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null), [account, setAccount] = useState("all"), [keyword, setKeyword] = useState("");
+  useEffect(() => { let cancelled = false; portfolioApi.overview("all").then(r => { if (!cancelled) { setPortfolio(r); setError(""); } }).catch(e => { if (!cancelled) setError(String(e.message)); }); return () => { cancelled = true; }; }, []);
+  const holdings = account === "all" ? portfolio?.holdings ?? [] : (portfolio?.current?.positions ?? []).filter(p => p.account_id === account && Number(p.quantity) > 0);
+  const filtered = holdings.filter(p => `${p.name} ${p.code}`.toLowerCase().includes(keyword.trim().toLowerCase()));
+  const allocationLabels: Record<string, string> = { ...Object.fromEntries(assetOptions.map(o => [o.value, o.label])), cash: "现金", pending: "待确认 / 待到账", liabilities: "负债" };
   const accountNames = Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]));
   async function readLegacy() {
-    try { const [series, holdings] = await Promise.all([api.returnSeries(selectedAccount, "CNY"), api.holdingHistory(selectedAccount, "")]); setLegacy({ points: series.items, holdings: holdings.items }); setError(""); }
+    try { const [series, holdings] = await Promise.all([api.returnSeries("all", "CNY"), api.holdingHistory("all", "")]); setLegacy({ points: series.items, holdings: holdings.items }); setError(""); }
     catch (e) { setError(e instanceof Error ? e.message : "读取失败"); }
   }
-  return <div className="stack"><PortfolioPanel accountId={selectedAccount} maskAssets={maskAssets} onOpen={onOpen} showPositions={false} /><div><Button onClick={readLegacy}>查看建档前来源记录</Button>{error && <p>{error}</p>}</div>
+  return <div className="stack">
+    {error && <Alert type="error" content={error} />}
+    {portfolio && <><PortfolioPanel accountId="all" portfolio={portfolio} maskAssets={maskAssets} showAssetTable={false} />
+      <section className="panel stack"><div className="portfolio-toolbar"><h3>组合配置</h3><small>纳入 {portfolio.coverage.included_accounts.length} 个账户 · {portfolio.coverage.unenrolled_accounts.length} 个账户未建档</small></div>
+        {!!portfolio.coverage.unenrolled_accounts.length && <small>未建档账户尚未纳入组合收益，到账户与数据确认起点后参与统计。</small>}
+        {!portfolio.allocation.length && <small>暂无可用配置比例；请补齐账户起点及估值。</small>}
+        <div className="portfolio-allocation">{portfolio.allocation.map(a => <div key={a.type}><span>{allocationLabels[a.type] || a.type}</span><div className="allocation-track"><i style={{ width: `${Math.min(100, Math.max(0, Number(a.weight) * 100))}%` }} /></div><strong>{percent(a.weight)}</strong></div>)}</div>
+      </section>
+      <section className="panel stack"><div className="portfolio-toolbar"><div><h3>当前持仓</h3><small>账户筛选仅影响本表；仓位始终以整体组合总资产为分母。</small></div><div className="portfolio-holding-filters"><Input.Search aria-label="组合持仓搜索" placeholder="名称或代码" value={keyword} onChange={setKeyword} /><Select aria-label="持仓账户筛选" value={account} onChange={setAccount} options={[{ value: "all", label: "全部账户" }, ...accounts.map(a => ({ value: a.account_id, label: accountNames[a.account_id] }))]} /></div></div>
+        <AssetTable assets={filtered} onOpen={onOpen} maskAssets={maskAssets} accountNames={accountNames} />
+      </section>
+    </>}
+    <div><Button onClick={readLegacy}>查看建档前来源记录</Button></div>
     {legacy && <Drawer visible title="原持仓快照与旧收益观察（来源记录）" width={1000} footer={null} onCancel={() => setLegacy(null)}><p>这些资料继续保留，不是新账目的成交、清仓利润或完整账户净值。新增业务到账户与数据记账。</p>
       <Table rowKey="id" data={legacy.holdings} pagination={{ pageSize: 8 }} columns={[{ title: "实际时间", dataIndex: "snapshot_time", render: timeLabel }, { title: "账户 / 标的", render: (_, r) => `${accountLabel(r.account_id, accountNames)} · ${r.code}` }, { title: "原数量 / 均价", render: (_, r) => maskAssets ? "••••" : `${r.quantity} / ${r.average_cost} ${r.raw_currency}` }]} />
       <Table rowKey="id" data={legacy.points} pagination={{ pageSize: 8 }} columns={[{ title: "旧观察时间", dataIndex: "observed_at", render: timeLabel }, { title: "说明", render: () => "旧持仓收益观察，不含完整现金/资金流" }]} />

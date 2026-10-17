@@ -704,3 +704,75 @@ def test_gold_backfill_and_trade_correction_replay(records):
         s.save_trade(db, {**gold(), "account_id": "test-a", "effective_at": when(1), "side": "BUY", "quantity": "2.125", "price": "600", "fees": "2.125"}, row.id)
         assert current(db)["positions"][0]["average_cost"] == 601
         assert current(db)["cash_value"] == D("797.125")
+
+
+def test_closed_query_keeps_completed_cycles_after_rebuy_and_filters(records):
+    client, sessions = records
+    with sessions() as db:
+        opening(db, cash="2000")
+        trade(db, quantity="10", price="10", fees="1")
+        trade(db, "SELL", "4", "12", day=2, fees="1")
+        trade(db, "SELL", "6", "13", day=3, fees="1")
+        trade(db, "BUY", "2", "14", day=4)
+        trade(db, "SELL", "2", "12", day=5)
+        trade(db, "BUY", "1", "10", day=6)
+        rows = s.closed_positions(db)["items"]
+        assert len(rows) == 2 and rows[0]["cycle"] == 2 and rows[1]["cycle"] == 1
+        assert D(rows[1]["realized"]) == 23 and D(rows[1]["realized_cny"]) == 23
+        assert rows[1]["holding_days"] == 2 and len(rows[1]["trades"]) == 3
+        assert current(db)["positions"][0]["quantity"] == 1
+        result = s.closed_positions(db)
+        assert result["summary"]["win_rate"] == "0.5" and D(result["summary"]["realized_cny"]) == 19
+    response = client.get("/api/portfolio/closed", params={"account_id": "test-a", "start": when(3), "end": when(3), "keyword": "TEST"})
+    assert response.status_code == 200 and len(response.json()["items"]) == 1
+    assert response.json()["items"][0]["cycle"] == 1
+    assert client.get("/api/portfolio/closed", params={"account_id": "test-b"}).json()["summary"]["count"] == 0
+    assert client.get("/api/portfolio/closed", params={"start": when(4), "end": when(1)}).status_code == 400
+
+
+def test_closed_query_historical_fx_missing_cost_and_transfers(records):
+    _, sessions = records
+    foreign = {"code": "US.FX", "name": "虚构外币标的", "market": "US", "currency": "USD"}
+    with sessions() as db:
+        opening(db, cash="0", positions=[asset(**foreign, quantity="2", average_cost="100", price="100", cost_cny_amount="1400")], fx={"USD": {"rate": "7", "at": when(0)}})
+        trade(db, "SELL", "1", "120", day=1, **foreign, fx={"USD": {"rate": "7.2", "at": when(1)}})
+        trade(db, "SELL", "1", "130", day=2, **foreign, fx={"USD": {"rate": "7.3", "at": when(2)}})
+        event(db, "valuation", 4, fx={"USD": {"rate": "9", "at": when(4)}})
+        opening(db, "test-b", cash="0", positions=[asset(quantity="1", average_cost=None, price="10")])
+        trade(db, "SELL", "1", "11", day=3, account="test-b")
+        result = s.closed_positions(db)
+        fx_row = next(r for r in result["items"] if r["code"] == "US.FX")
+        assert D(fx_row["realized_cny"]) == 413 and fx_row["realized"] == "50"
+        assert fx_row["holding_days"] is None and fx_row["opening_kind"] == "snapshot"
+        assert result["summary"]["realized_cny"] is None and result["summary"]["missing_cny_count"] == 1
+        assert result["summary"]["win_rate"] == "1" and result["summary"]["unknown_count"] == 1
+        trade(db, "BUY", "1", "10", day=5, account="test-b")
+        event(db, "position_transfer", 6, account="test-b", **asset(), quantity="1", to_account_id="test-a")
+        assert s.closed_positions(db)["summary"]["count"] == 2
+
+
+def test_portfolio_holdings_merge_accounts_without_changing_scope_returns(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db, cash="100", positions=[asset(quantity="2", average_cost="8", price="10")])
+        opening(db, "test-b", cash="200", positions=[asset(quantity="3", average_cost="9", price="10")])
+        all_view = s.overview(db)
+        assert all_view["scope"] == "all" and len(all_view["holdings"]) == 1
+        merged = all_view["holdings"][0]
+        assert merged["quantity"] == "5" and merged["average_cost"] == "8.6" and merged["floating"] == "7"
+        assert len(merged["account_positions"]) == 2
+        assert abs(D(merged["position_weight"]) - D(50) / D(350)) < D("1e-25")
+        assert all_view["coverage"]["included_accounts"] == ["test-a", "test-b"]
+        assert sum(D(r["weight"]) for r in all_view["allocation"]) == 1
+        # Account bookkeeping is still independent and cannot replace the all-account series.
+        assert s.overview(db, "test-a")["current"]["total_assets"] == "120"
+        assert s.overview(db)["current"]["total_assets"] == "350"
+
+
+def test_closed_holding_days_follow_beijing_calendar_dates(records):
+    _, sessions = records
+    with sessions() as db:
+        opening(db)
+        s.save_trade(db, {**asset(), "account_id": "test-a", "side": "BUY", "quantity": "1", "price": "10", "effective_at": "2026-10-02T15:00:00Z"})
+        s.save_trade(db, {**asset(), "account_id": "test-a", "side": "SELL", "quantity": "1", "price": "11", "effective_at": "2026-10-02T17:00:00Z"})
+        assert s.closed_positions(db)["items"][0]["holding_days"] == 1

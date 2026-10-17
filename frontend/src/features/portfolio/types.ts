@@ -1,5 +1,6 @@
 export type Asset = {
   account_id: string; code: string; name: string; market: string; asset_type: string; currency: string; unit: string;
+  account_positions?: Asset[];
   quantity: string; average_cost: string | null; cost: string | null; cost_cny: string | null;
   price: string | null; market_value: string | null; market_value_cny: string | null;
   floating: string | null; holding_return: string | null; realized: string | null; realized_cny: string | null;
@@ -22,10 +23,14 @@ export type Point = {
 export type RecordItem = { id: number; category: "trade" | "event"; kind: string; account_id: string; effective_at: string; data: Record<string, unknown>; is_void: boolean };
 export type OpeningAsset = { code: string; name: string; market: string; currency: string; asset_type: string; unit: string; quantity: string; average_cost: string | null; price: string | null; price_at?: string; cost_cny_amount?: string | null };
 export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string }>; source?: string };
-export type Portfolio = { current: Point | null; points: Point[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string> };
+export type Portfolio = { current: Point | null; points: Point[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string>; holdings: Asset[]; allocation: Array<{ type: string; weight: string }>; coverage: { included_accounts: string[]; unenrolled_accounts: string[] } };
 
 export type Reconciliation = { code: string; currency: string; source_at: string; status: "mismatch" | "uncovered"; reason: string;
   source_quantity: string; ledger_quantity: string | null; source_average_cost: string | null; ledger_average_cost: string | null };
 export type HistoryEntry = { kind: string; effective_at: string; data: Record<string, unknown> };
 export type HistoryPreview = { checkpoint_at: string; new_start: string; record_count: number; current: Point;
   differences: Array<{ item: string; before: string | null; after: string | null }> };
+
+export type ClosedTrade = { record_id: string; at: string; side: string; quantity: string; price: string; fees: string; disposed_cost: string | null; realized: string | null };
+export type ClosedPosition = { account_id: string; account_name: string; code: string; name: string; currency: string; unit: string; cycle: number; opened_at: string; closed_at: string; holding_days: number | null; realized: string | null; realized_cny: string | null; disposed_cost: string | null; return: string | null; opening_kind: string; trades: ClosedTrade[] };
+export type ClosedQuery = { items: ClosedPosition[]; summary: { count: number; symbol_count: number; win_rate: string | null; known_count: number; unknown_count: number; realized_cny: string | null; known_realized_cny: string; missing_cny_count: number; by_currency: Record<string, string> } };
