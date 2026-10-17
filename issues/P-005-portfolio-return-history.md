@@ -6,9 +6,9 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-17"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014"]
 related: ["P-001", "P-002"]
-evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md"]
+evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md"]
 next: "验收联合明细导入后的账目与清仓查询；缺失历史估值不推算"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-17 用户授权修正最新报价读取规则。[C-014](../CODE_CHANGE_LOG/C-014-current-real-quotes.md) 将当前展示与严格历史估值分开：当前允许沿用明确真实报价并标明日期，历史缺失保持缺失，重复资金边界提示合并；相关 6 项隔离检查及重载后的正式接口核对通过。未新增行情抓取或改写真实账目，自动行情目前仍依赖未连接的 OpenD。
 
 2026-10-17 用户授权处理券商对账单与资金流水并写入正式系统，明确不推算历史估值。[C-013](../CODE_CHANGE_LOG/C-013-gf-ledger-import.md) 完成联合解析、隔离试写、指定账户重建和明确报价限制；逐笔/日终来源核对及正式 API 检查通过，其他账户与个人记录无变化，恢复副本留在本地运行目录。已写入不代表全部页面验收完成；不将缺失历史价格伪装为完整收益曲线。
 
