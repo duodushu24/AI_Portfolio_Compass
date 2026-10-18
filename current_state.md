@@ -20,6 +20,8 @@ updated: "2026-10-18"
 
 ## 当前焦点与范围
 
+2026-10-18 [P-007](issues/P-007-diluted-cost-dividends.md) 由 [C-017](CODE_CHANGE_LOG/C-017-manual-dividend-cost.md) 完成独立手工分红入口、视同到账并同步扣减成本、含分红持仓盈亏及清仓不重复结算。14 项相关后端用例、构建、隔离浏览器和正式重载核对通过；既有现金/资产/清仓不变，未自动补录新分红。不做后续导入去重，不改收益统计起点；下一步用户录入与验收。
+
 2026-10-18 [P-008](issues/P-008-data-loading-performance.md) 按用户确认的加载优化范围由 [C-016](CODE_CHANGE_LOG/C-016-data-loading-performance.md) 实施：页面分区加载、复盘批量取价、请求内重放复用、精简曲线及按需详情、短期读缓存和写入失效。针对性测试、构建、正式重载及独立浏览器核对通过，账目/报价/复盘等表摘要未变；当前收益与旧基准一致。下一步用户实际使用验收。
 
 2026-10-17 [P-007](issues/P-007-diluted-cost-dividends.md) 按用户最后确认的简化范围由 [C-015](CODE_CHANGE_LOG/C-015-diluted-cost-cash-dividends.md) 实施：唯一摊薄成本、归零结算并重置、现金分红不改成本且归属原阶段。相关 19 项检查、前端构建、隔离重放和正式接口核对通过，正式后端已重载；真实现金/数量/相同报价下总资产不变。仅补充原分红归属字段。已撤回应收分红、除息归因和每日曲线计划，后续按实际周度等观察记录；下一步用户页面验收。
@@ -50,7 +52,7 @@ P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围�
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
 | [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 验收联合明细导入后的账目与清仓查询；缺失历史估值不推算 |
 | [P-006](issues/P-006-bank-gold.md) | 银行黄金按克记账 | active | 重启后按银行黄金实际录入，验收单位、报价与收益 |
-| [P-007](issues/P-007-diluted-cost-dividends.md) | 唯一摊薄成本与现金分红收益归属 | active | 验收摊薄成本、持仓分红和清仓收益页面；仅按实际到账记录现金分红 |
+| [P-007](issues/P-007-diluted-cost-dividends.md) | 唯一摊薄成本与现金分红收益归属 | active | 验收手工分红的现金与成本同步变化、纠错和作废；新分红使用独立入口录入 |
 | [P-008](issues/P-008-data-loading-performance.md) | 数据页加载延迟与重复账本重放 | active | 用户实际验收首页、资产组合与账户数据的加载和切换速度 |
 <!-- project-memory:open:end -->
 
