@@ -100,7 +100,7 @@ export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSa
     <div className="portfolio-fields"><Field title="期初实际时间" type="datetime-local" value={at} onChange={setAt} /><Field title="纳入组合时间（默认期初）" type="datetime-local" value={includedAt} onChange={setIncludedAt} /><Field title="移出组合时间（可留空）" type="datetime-local" value={excludedAt} onChange={setExcludedAt} /></div>
     <Checkbox checked={included} onChange={setIncluded}>纳入全账户收益范围（与账户同步启用开关无关）</Checkbox>
     <div className="portfolio-fields"><Field title="历史结转盈亏（CNY，可留空）" type="number" value={historical} onChange={setHistorical} /><Field title="历史收益来源 / 统计期间" value={profitNote} onChange={setProfitNote} /></div>
-    <small>仅填写未包含在当前持仓盈亏中的历史已实现盈亏；不增加现金、不改变持仓成本。明确无历史盈亏填 0，留空表示未知。</small>
+    <small>仅填写账户起点之前、未包含在期初持仓盈亏中的已实现盈亏；已在本系统记账的清仓或分红不重复结转。不增加现金、不改变持仓成本；无历史盈亏填 0，未知留空。</small>
     <fieldset><legend>期初各币种现金（实际可用余额）</legend><div className="portfolio-fields">{currencies.map(c => <Field key={c} title={`${c} 现金`} type="number" value={cash[c] ?? ""} onChange={v => setCash({ ...cash, [c]: v })} />)}</div></fieldset>
     <small>银行黄金请在名称中写明银行及产品，按克和元／克填写；不同产品分别添加，已有产品后续通过买卖维护。</small>
     {positions.map((p, i) => <fieldset key={i}><legend>期初持仓 {i + 1}</legend><div className="portfolio-fields portfolio-opening-row">
