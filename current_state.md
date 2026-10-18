@@ -20,6 +20,8 @@ updated: "2026-10-18"
 
 ## 当前焦点与范围
 
+2026-10-18 [P-005](issues/P-005-portfolio-return-history.md) 按用户最新明确指令，由 [C-020](CODE_CHANGE_LOG/C-020-account-data-reset.md) 清空指定账户业务数据，保留账户登记，回到未建档状态供用户从期初自行重录。恢复副本、隔离试清空、正式事务及接口核对通过；其他账户账本/当前财务结果/清仓与原报价不变。本批无应用代码修改，下一步用户手工建账验收。
+
 2026-10-18 [P-005](issues/P-005-portfolio-return-history.md) 由 [C-019](CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md) 修复验收反馈：历史节点只展示当时非零持仓，单币种清仓摘要显示原币盈亏，周度曲线恢复按日分组、可逐笔点击的真实交易标记。8 项相关检查、构建、正式重载及浏览器通过；完整历史/当前收益和原账本不变，不推算缺价交易日的收益。下一步用户实际验收。
 
 2026-10-18 [P-005](issues/P-005-portfolio-return-history.md) 由 [C-018](CODE_CHANGE_LOG/C-018-weekly-close-baseline.md) 完成确认收盘基准、周度估值补录及授权汇率插值标记。16 项相关后端用例、构建、隔离试录、正式写入/重载及浏览器检查通过；原账本未变，只新增估值。既有最新报价保留原日期，估算历史与旧行情提示可查；一项既有导入测试的旧分红预期已单独复现并记录。下一步用户验收曲线和周度更新。
@@ -54,7 +56,7 @@ P-002 仍暂停，日记交付条件已满足，但个人证据复盘的范围�
 | ID | 标题 | 状态 | 下一步 / 恢复条件 |
 |---|---|---|---|
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | P-001 完成并验收后，确认复盘范围与完成条件再恢复 |
-| [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 验收历史节点非零持仓、交易标记及单币种清仓摘要；按实际观察继续更新估值 |
+| [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 用户在清空的指定账户重新确定期初并手工录入买卖，验收从现金起点建账的完整流程 |
 | [P-006](issues/P-006-bank-gold.md) | 银行黄金按克记账 | active | 重启后按银行黄金实际录入，验收单位、报价与收益 |
 | [P-007](issues/P-007-diluted-cost-dividends.md) | 唯一摊薄成本与现金分红收益归属 | active | 验收手工分红的现金与成本同步变化、纠错和作废；新分红使用独立入口录入 |
 | [P-008](issues/P-008-data-loading-performance.md) | 数据页加载延迟与重复账本重放 | active | 用户实际验收首页、资产组合与账户数据的加载和切换速度 |

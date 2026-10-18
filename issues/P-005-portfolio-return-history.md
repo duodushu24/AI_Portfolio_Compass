@@ -6,10 +6,10 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-18"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020"]
 related: ["P-001", "P-002", "P-007"]
-evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md"]
-next: "验收历史节点非零持仓、交易标记及单币种清仓摘要；按实际观察继续更新估值"
+evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md"]
+next: "用户在清空的指定账户重新确定期初并手工录入买卖，验收从现金起点建账的完整流程"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
 ---
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-18 用户明确改为清空指定账户全部业务数据并自行从期初重录，不再保留旧成交。由 [C-020](../CODE_CHANGE_LOG/C-020-account-data-reset.md) 执行：私有恢复副本及隔离试清空通过后，正式事务清除该账户期初、持仓来源、成交、复盘、关联估值及含旧资产的派生诊断；保留账户登记供重新设置期初。混合估值仅移除目标账户专属报价/汇率，其余账户账本、当前财务结果、清仓与原报价核对不变。正式接口确认未建档、无持仓/成交/清仓记录。本批无应用代码修改；下一步用户手工建账验收。
 
 2026-10-18 用户验收发现节点详情列出历史零持仓、外币清仓摘要为空、周度曲线隐藏交易。由 [C-019](../CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md) 修正：节点展示只保留当时非零持仓，清仓交易本身在成交详情中保留；单币种清仓摘要显示该原币已知完整盈亏，人民币缺失仍明确说明；周度曲线恢复独立交易标记，同日多笔可展开选择，不推算交易时点收益。8 项相关后端用例、构建、正式重载及浏览器检查通过，历史/当前财务结果、原账本和清仓记录未变；等待用户实际验收。
 
