@@ -6,10 +6,10 @@ title: "唯一摊薄成本与现金分红收益归属"
 status: active
 created: "2026-10-17"
 updated: "2026-10-18"
-changes: ["C-015", "C-017"]
+changes: ["C-015", "C-017", "C-023"]
 related: ["P-005", "P-006"]
 evidence: ["issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md", "CODE_CHANGE_LOG/C-015-diluted-cost-cash-dividends.md", "CODE_CHANGE_LOG/C-017-manual-dividend-cost.md", "backend/tests/test_gf_import.py", "backend/app/services/portfolio/ledger.py", "backend/tests/test_diluted_cost.py"]
-next: "验收手工分红的现金与成本同步、清仓重置及纠错作废；核对并更新券商导入旧成本断言"
+next: "验收手工分红的现金与成本同步、清仓重置及纠错作废"
 priority: high
 tags: ["cost", "dividend", "returns", "ledger"]
 ---
@@ -22,7 +22,7 @@ tags: ["cost", "dividend", "returns", "ledger"]
 
 当前唯一方案为更新后的 [S-001](solutions/P-007/S-001-diluted-cost-dividend-accounting.md)。C-015 保留历史事实，其“分红不改成本”由本批替代。用户实际使用待验收。2026-10-18 文档核对确认源码仍执行分红扣减成本与归零结算；本轮未重新运行测试或操作正式账本。
 
-**关闭判断：保持 active。** 已有隔离/正式核对及浏览器依据，但尚缺最后手工分红/纠错的用户验收；另有已记录的旧测试缺口：`backend/tests/test_gf_import.py::test_joint_import_cash_cost_scope_and_idempotency` 仍断言成本为 `41`，其虚构样本包含净分红 `5`，按现行规则应核对为 `36`。C-018 已复现旧断言失败；本轮只核对代码未修复，不能声称全部回归通过。实际修复需按任务授权处理，影响评估纳入 P-009。
+**关闭判断：保持 active。** 最后手工分红/纠错的用户验收仍待完成。后续 [C-023](../CODE_CHANGE_LOG/C-023-onboarding-profit-carry.md) 已将旧联合导入断言由 41 修正为按当前规则的 36，并完成相关定向检查；该测试缺口不再待修。同期修复历史纠错测试中的旧平均成本/部分卖出已实现收益预期及旧提示文案，不声称全套回归通过。
 
 ## 已确认目标与边界
 

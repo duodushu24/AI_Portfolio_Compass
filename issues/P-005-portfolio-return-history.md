@@ -6,7 +6,7 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-18"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023"]
 related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md", "CODE_CHANGE_LOG/C-021-historical-fx-selection.md", "CODE_CHANGE_LOG/C-022-quote-mark-display.md"]
 next: "验收历史汇率沿用后的人民币成本与清仓折算，以及后续手工更新和历史纠错"
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-18 后续实施：[P-010](P-010-account-onboarding-profit-carry.md) / [C-023](../CODE_CHANGE_LOG/C-023-onboarding-profit-carry.md) 已接入账户级历史结转及标准起点导入。累计金额可含历史结转与期初持仓盈亏；原统计期盈亏/收益率和基准仍独立。修复历史纠错漏比人民币成本和累计盈亏，原账目未操作；实际验收仍待用户进行。下文早先记录核对为该次事实，不代表 C-023 未实施。
 
 2026-10-18 记录核对：基础记账、历史补录、组合基准/周度曲线、持仓与清仓分离、交易节点及历史汇率沿用均已实施。最近代码基线 `71a00fb7a5f115199be5dd1aa5619c81ce53e6cd`；本次只核对源码、既有验证记录及提交，不修改金融事实或宣称重新通过业务验收。
 
