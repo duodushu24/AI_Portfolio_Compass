@@ -21,7 +21,9 @@ export type Point = {
   changes: { before_quantity: string; after_quantity: string; before_cost: string | null; after_cost: string | null; realized: string | null } | null;
   data: Record<string, unknown>;
 };
-export type ChartPoint = Pick<Point, "observed_at" | "event_type" | "record_id" | "account_id" | "interval" | "ended" | "total_assets" | "nav" | "units" | "profit" | "opening_assets" | "cumulative_return" | "asset_returns" | "valuation_date">;
+export type ChartPoint = Pick<Point, "observed_at" | "event_type" | "record_id" | "account_id" | "interval" | "ended" | "total_assets" | "nav" | "units" | "profit" | "opening_assets" | "cumulative_return" | "asset_returns" | "valuation_date"> & {
+  transaction?: { code: string; name: string; side: string; quantity: string; price: string; fees: string; currency: string; unit: string };
+};
 export type RecordItem = { id: number; category: "trade" | "event"; kind: string; account_id: string; effective_at: string; data: Record<string, unknown>; is_void: boolean };
 export type OpeningAsset = { code: string; name: string; market: string; currency: string; asset_type: string; unit: string; quantity: string; average_cost: string | null; price: string | null; price_at?: string; cost_cny_amount?: string | null };
 export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string }>; source?: string };

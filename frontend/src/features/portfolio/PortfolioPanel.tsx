@@ -13,8 +13,14 @@ export const accountLabel = (id: string, names: Record<string, string> = {}) => 
 export const labels: Record<string, string> = { opening: "建档", include: "纳入组合", exclude: "移出组合", trade: "买卖", valuation: "更新市值", deposit: "入金", withdrawal: "出金", transfer: "账户转账", dividend: "分红", interest: "利息", fee: "费用", fx: "换汇", subscription: "待确认申购", settle: "赎回到账", cancel_subscription: "申购撤回", split: "拆分", share_credit: "红股入账", position_transfer: "转托管" };
 
 function Chart({ points: records, metric, onSelect, assetCode = "" }: { points: ChartPoint[]; metric: string; onSelect: (p: ChartPoint) => void; assetCode?: string }) {
+  const [tradeGroup, setTradeGroup] = useState<ChartPoint[]>([]);
   const closingObservations = !assetCode && Boolean(records[0]?.valuation_date);
   const points = closingObservations ? records.filter(p => p.event_type === "valuation" && (p.valuation_date || p.total_assets != null)) : records;
+  const tradeGroups = closingObservations ? Object.values(records.filter(p => p.event_type === "trade").reduce<Record<string, ChartPoint[]>>((groups, p) => {
+    const day = new Date(p.observed_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
+    (groups[day] ||= []).push(p); return groups;
+  }, {})) : [];
+  const openTrades = (group: ChartPoint[]) => group.length === 1 ? onSelect(group[0]) : setTradeGroup(group);
   if (!points.length) return <Empty description="确认期初后，买卖、资金和市值更新会自动形成收益记录。" />;
   if (points.every(p => p.cumulative_return == null && p.profit == null)) return <Empty description="历史估值未补齐，暂不展示收益曲线。交易和资金记录已保留。" />;
   const value = (p: ChartPoint) => {
@@ -26,7 +32,8 @@ function Chart({ points: records, metric, onSelect, assetCode = "" }: { points: 
     return v == null ? null : Number(v) * (metric === "return" ? 100 : 1);
   };
   const times = points.map(p => new Date(p.observed_at).getTime()), values = points.map(value);
-  const first = Math.min(...times), last = Math.max(...times), valid = values.filter((v): v is number => v != null);
+  const domainTimes = [...times, ...tradeGroups.flatMap(group => group.map(p => new Date(p.observed_at).getTime()))];
+  const first = Math.min(...domainTimes), last = Math.max(...domainTimes), valid = values.filter((v): v is number => v != null);
   const low = Math.min(0, ...valid), high = Math.max(0, ...valid), pad = Math.max((high - low) * .12, 1);
   const x = (t: number) => first === last ? 460 : 75 + (t - first) / (last - first) * 795;
   const y = (v: number) => 235 - (v - low + pad) / (high - low + 2 * pad) * 210;
@@ -35,9 +42,25 @@ function Chart({ points: records, metric, onSelect, assetCode = "" }: { points: 
   return <div className="portfolio-chart"><svg viewBox="0 0 900 290" role="img" aria-label={assetCode ? "标的持仓收益率曲线" : "整体组合收益曲线"}>
     {[0, 1, 2, 3, 4].map(i => { const v = low - pad + (high - low + 2 * pad) * i / 4; return <g key={i}><line x1="75" x2="870" y1={y(v)} y2={y(v)} stroke="#d9dfe7" /><text x="65" y={y(v) + 4} textAnchor="end">{v.toFixed(1)}{assetCode || metric === "return" ? "%" : ""}</text></g>; })}
     <path d={path} fill="none" stroke="#165dff" strokeWidth="2.5" />
+    {!!tradeGroups.length && <><line x1="75" x2="870" y1="258" y2="258" stroke="#e5e6eb" /><text x="65" y="262" textAnchor="end">交易</text>{tradeGroups.map(group => {
+      const p = group[0], cx = x(new Date(p.observed_at).getTime());
+      const title = `${timeLabel(p.observed_at).split(" ")[0]} · ${group.length} 笔交易`;
+      return <g key={p.observed_at} className="portfolio-trade-marker" role="button" tabIndex={0} aria-label={`查看交易 ${title}`} onClick={() => openTrades(group)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrades(group); } }}>
+        <title>{title}；点击查看成交及数量、成本变化，不代表该时点的组合收益。</title><circle cx={cx} cy="258" r="8" fill="#ff7d00" />{group.length > 1 && <text x={cx} y="262" textAnchor="middle" style={{fill: "white", fontSize: 10}}>{group.length}</text>}
+      </g>;
+    })}</>}
     {points.map((p, i) => <circle key={i} cx={x(times[i])} cy={values[i] == null ? 250 : y(values[i]!)} r="5" fill={p.event_type === "trade" ? "#ff7d00" : values[i] == null ? "#86909c" : "#165dff"} tabIndex={0} role="button" aria-label={`查看收益记录 ${observationLabel(p)} ${labels[p.event_type]}`} onClick={() => onSelect(p)} onKeyDown={e => { if (e.key === "Enter") onSelect(p); }}><title>{observationLabel(p)} · {labels[p.event_type]} · {values[i] == null ? "资料未齐/无持仓" : values[i]?.toFixed(2)}</title></circle>)}
-    <text x="75" y="280">{observationLabel(points[0])}</text><text x="870" y="280" textAnchor="end">{observationLabel(points[points.length - 1])}</text>
-  </svg><small>{closingObservations ? "按已记录的收盘估值连接，不生成每日收益。期间买卖、分红和现金变化已按账本计入；点击可查看估值依据。" : "橙色为实际买卖点，可点击查看数量、成本和利润变化。仅连接已保存时点；不同连续区间和缺失资料处断开。"}</small></div>;
+    <text x="75" y="280">{observationLabel(points[0])}</text><text x="870" y="280" textAnchor="end">{last > Math.max(...times) ? timeLabel(new Date(last).toISOString()) : observationLabel(points[points.length - 1])}</text>
+  </svg><small>{closingObservations ? "蓝线连接已记录的估值。下方橙色标记为真实交易，同日多笔合并显示数量，点击可逐笔查看；缺少完整估值的交易日不生成收益点。交易、分红和现金变化已计入后续估值。" : "橙色为实际买卖点，可点击查看数量、成本和利润变化。仅连接已保存时点；不同连续区间和缺失资料处断开。"}</small>
+    {!!tradeGroup.length && <Drawer visible title={`${new Date(tradeGroup[0].observed_at).toLocaleDateString("zh-CN")} · ${tradeGroup.length} 笔交易`} width={850} footer={null} onCancel={() => setTradeGroup([])}>
+      <Table rowKey={p => `${p.account_id}:${p.record_id}`} data={tradeGroup} pagination={false} columns={[
+        {title: "时间", render: (_, p: ChartPoint) => timeLabel(p.observed_at)},
+        {title: "标的", render: (_, p: ChartPoint) => p.transaction?.name || p.transaction?.code || "已记录交易"},
+        {title: "方向", render: (_, p: ChartPoint) => p.transaction?.side === "BUY" ? "买入" : "卖出"},
+        {title: "查看", render: (_, p: ChartPoint) => <button className="portfolio-name-button" onClick={() => { setTradeGroup([]); onSelect(p); }}>查看成交与持仓变化</button>},
+      ]} />
+    </Drawer>}
+  </div>;
 }
 
 export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = {}, asOf }: { assets: Asset[]; onOpen?: (code: string) => void; maskAssets?: boolean; accountNames?: Record<string, string>; asOf?: string }) {
@@ -104,8 +127,9 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
     {selected && <Drawer title={`${labels[selected.event_type]} · ${observationLabel(selected)}`} visible width={1000} footer={null} onCancel={() => setSelected(null)}><div className="stack">
       <p>总资产 {money(selected.total_assets)} CNY · 净值 {numeric(selected.nav)} · 份额 {money(selected.units)} · 收益率 {percent(selected.cumulative_return)} · 累计组合盈亏 {money(selected.profit)} CNY</p>
       <Tag color={selected.quality === "complete" ? "green" : "orange"}>{selected.quality === "complete" ? "当时报价完整" : "估算 / 资料缺失"}</Tag>
+      {selected.event_type === "trade" && <><h4>本次交易</h4><p>{accountName(selected.account_id)} · {String(selected.data.name || selected.data.code)} · {selected.data.side === "BUY" ? "买入" : "卖出"} · 数量 {maskAssets ? "••••" : numeric(String(selected.data.quantity))} · 成交价 {maskAssets ? "••••" : numeric(String(selected.data.price))} {String(selected.data.currency)} · 费用 {maskAssets ? "••••" : numeric(String(selected.data.fees))}</p>{selected.total_assets == null && <small>此时缺少完整组合报价，不计算该时点收益；成交和数量、成本、现金变化已记录。</small>}</>}
       {selected.changes && <p>数量 {money(selected.changes.before_quantity)} → {money(selected.changes.after_quantity)}；剩余成本 {money(selected.changes.before_cost)} → {money(selected.changes.after_cost)}；本次已实现盈亏 {money(selected.changes.realized)}（原币）</p>}
-      <AssetTable assets={selected.positions} asOf={selected.observed_at} maskAssets={maskAssets} accountNames={data?.account_names} /><p>现金：{selected.cash.map(c => `${accountName(c.account_id)} ${money(c.amount)} ${c.currency}`).join("；")}</p><p>待确认 / 待到账：{selected.pending.map(p => `${accountName(p.account_id)} · ${p.pending_id} ${money(p.amount)} ${p.currency}`).join("；") || "无"}</p>
+      <h4>当时持仓</h4><AssetTable assets={selected.positions.filter(a => Number(a.quantity) > 0)} asOf={selected.observed_at} maskAssets={maskAssets} accountNames={data?.account_names} /><p>现金：{selected.cash.map(c => `${accountName(c.account_id)} ${money(c.amount)} ${c.currency}`).join("；")}</p><p>待确认 / 待到账：{selected.pending.map(p => `${accountName(p.account_id)} · ${p.pending_id} ${money(p.amount)} ${p.currency}`).join("；") || "无"}</p>
       {[...selected.issues, ...selected.performance_issues].map(i => <p key={i}>{i}</p>)}
       {!maskAssets && <details><summary>此项操作记录</summary><pre>{JSON.stringify(selected.data, null, 2)}</pre></details>}
     </div></Drawer>}

@@ -45,7 +45,10 @@ def test_compact_history_preserves_current_and_every_financial_point(db):
     for expected, actual in zip(full["points"], compact["points"], strict=True):
         for p in expected["positions"]:
             p["closed_cycles"] = []
-        assert {k: v for k, v in expected.items() if k in actual} == actual
+        assert {k: v for k, v in expected.items() if k in actual} == {k: v for k, v in actual.items() if k != "transaction"}
+        if expected["event_type"] == "trade":
+            assert actual["transaction"]["code"] == expected["data"]["code"]
+            assert actual["transaction"]["side"] == expected["data"]["side"]
         detail = s.point_detail(db, "all", expected["observed_at"], expected["event_type"], expected["account_id"], expected["record_id"])
         assert detail == expected
     assert s.overview(db, view="current")["points"] == []

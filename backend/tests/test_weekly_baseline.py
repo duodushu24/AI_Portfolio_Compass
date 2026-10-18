@@ -100,3 +100,21 @@ def test_estimate_marker_and_actual_close_date_survive_storage(db):
     close(db, 4, estimate=True)
     assert s.overview(db)["current"]["positions"][0]["quote"]["at"] == "2026-01-04T07:00:00Z"
     assert s.overview(db)["current"]["positions"][1]["fx"]["is_estimate"] is True
+
+
+def test_chart_keeps_each_trade_and_details_without_inventing_an_intraday_return(db):
+    close(db, 2, baseline=True)
+    for hour, side in [(2, "BUY"), (3, "SELL")]:
+        s.save_trade(db, {"account_id": "cn", "effective_at": f"2026-01-03T{hour:02}:00:00Z", "code": "CN.TEST", "market": "CN",
+            "currency": "CNY", "asset_type": "etf", "side": side, "quantity": "1", "price": "13"})
+    close(db, 4)
+    chart = s.overview(db, view="chart")
+    trades = [p for p in chart["points"] if p["event_type"] == "trade"]
+    assert len(trades) == 2
+    assert [p["transaction"]["side"] for p in trades] == ["BUY", "SELL"]
+    for p in trades:
+        assert p["transaction"]["code"] == "CN.TEST" and p["transaction"]["quantity"] == "1"
+        assert p["profit"] is None and p["cumulative_return"] is None
+        detail = s.point_detail(db, "all", p["observed_at"], "trade", p["account_id"], p["record_id"])
+        assert detail["changes"]["before_quantity"] != detail["changes"]["after_quantity"]
+    assert D(chart["points"][-1]["profit"]) == 0

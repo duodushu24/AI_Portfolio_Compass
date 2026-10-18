@@ -23,6 +23,10 @@ export function ClosedPositions({ accountId, accounts, revision, maskAssets = fa
   }, [filters, revision]);
   const query = () => setFilters({ account_id: account, keyword: keyword.trim(), ...(start ? { start: new Date(`${start}T00:00:00`).toISOString() } : {}), ...(end ? { end: new Date(`${end}T23:59:59.999`).toISOString() } : {}) });
   const summary = data?.summary;
+  const currencies = new Set(data?.items.map(item => item.currency));
+  const singleCurrency = currencies.size === 1 ? [...currencies][0] : null;
+  const summaryCurrency = singleCurrency || "CNY";
+  const summaryAmount = summary ? singleCurrency ? summary.unknown_count === 0 ? summary.by_currency[singleCurrency] ?? "0" : null : summary.realized_cny : null;
   return <div className="stack closed-positions">
     <div className="closed-query-toolbar">
       <Select aria-label="清仓查询账户" value={account} onChange={setAccount} options={[{ value: "all", label: "全部账户" }, ...accounts.map(a => ({ value: a.account_id, label: a.display_name || a.institution || "未命名账户" }))]} />
@@ -32,12 +36,12 @@ export function ClosedPositions({ accountId, accounts, revision, maskAssets = fa
     </div>
     {error && <Alert type="error" content={error} />}
     <div className="portfolio-metrics closed-summary">
-      <div>清仓盈亏（CNY）<strong>{summary ? amount(summary.realized_cny, maskAssets) : "—"}</strong></div>
+      <div>清仓盈亏（{summaryCurrency}{singleCurrency && singleCurrency !== "CNY" ? "，原币" : ""}）<strong>{amount(summaryAmount, maskAssets)}</strong></div>
       <div>清仓胜率<strong>{summary ? percent(summary.win_rate) : "—"}</strong></div>
       <div>清仓次数<strong>{summary?.count ?? "—"}</strong></div>
       <div>涉及标的数<strong>{summary?.symbol_count ?? "—"}</strong></div>
     </div>
-    {!!summary?.missing_cny_count && <Alert type="warning" content={`有 ${summary.missing_cny_count} 次清仓缺少历史人民币成本或卖出时汇率，未输出完整人民币合计。已知人民币盈亏：${amount(summary.known_realized_cny, maskAssets)}；按原币已知盈亏：${Object.entries(summary.by_currency).map(([c, v]) => `${amount(v, maskAssets)} ${c}`).join("；") || "无"}`} />}
+    {!!summary?.missing_cny_count && <Alert type="warning" content={`有 ${summary.missing_cny_count} 次清仓缺少历史人民币成本或卖出时汇率，人民币合计暂不可用。按原币已知盈亏：${Object.entries(summary.by_currency).map(([c, v]) => `${amount(v, maskAssets)} ${c}`).join("；") || "无"}。原币盈亏不受人民币折算资料缺失影响。`} />}
     {!!summary?.unknown_count && <small>有 {summary.unknown_count} 次清仓成本未知，不计入胜率；胜率＝盈利次数 ÷ 盈亏已知次数，持平计入分母。</small>}
     <Table className="portfolio-compact-table" tableLayoutFixed rowKey={r => `${r.account_id}:${r.code}:${r.currency}:${r.unit}:${r.cycle}`} data={data?.items ?? []} loading={loading} pagination={{ pageSize: 10 }} scroll={{ x: 1250 }} onRow={r => ({ onClick: () => setDetail(r) })} columns={[
       { title: "标的", width: 180, render: (_, r: ClosedPosition) => <div className="portfolio-asset-cell"><button type="button" className="portfolio-name-button" onClick={() => setDetail(r)}>{r.name || r.code}</button><small>{r.code}</small></div> },

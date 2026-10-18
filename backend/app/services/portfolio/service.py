@@ -400,7 +400,10 @@ def overview(db, scope="all", until=None, code=None, view="full"):
     if view == "chart":
         chart_fields = {"observed_at", "event_type", "record_id", "account_id", "interval", "ended",
                         "total_assets", "nav", "units", "profit", "opening_assets", "cumulative_return", "asset_returns", "valuation_date"}
-        points = [{k: v for k, v in p.items() if k in chart_fields} for p in points]
+        points = [{**{k: v for k, v in p.items() if k in chart_fields},
+                   **({"transaction": {k: p["data"].get(k) for k in
+                       ("code", "name", "side", "quantity", "price", "fees", "currency", "unit")}}
+                      if p["event_type"] == "trade" else {})} for p in points]
     openings, deals, events = facts(db)
     ids = {o.account_id for o in openings} if scope == "all" else {scope}
     name_ids = ids | {e.account_id for e in events if e.data.get("to_account_id") in ids}
