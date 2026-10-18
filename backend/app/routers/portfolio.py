@@ -46,6 +46,11 @@ def save_opening(account_id: str, payload: dict = Body(...), correction: bool = 
     return service.overview(db, account_id)
 
 
+@router.post("/accounts/{account_id}/opening/preview")
+def preview_opening(account_id: str, payload: dict = Body(...), correction: bool = False, db: Session = Depends(get_db)):
+    return call(lambda: service.preview_opening(db, account_id, payload, correction))
+
+
 @router.post("/trades")
 def trade(payload: dict = Body(...), db: Session = Depends(get_db)):
     return {"id": call(lambda: service.save_trade(db, payload))}

@@ -408,7 +408,10 @@ def import_confirm(source: str, payload: dict = Body(default_factory=dict), db: 
 
 @app.get("/api/import/excel/template")
 def import_excel_template(context: str = Query("position")) -> StreamingResponse:
-    if context == "deal":
+    if context == "opening":
+        from app.services.portfolio.opening_import import template_sheets
+        sheets = template_sheets()
+    elif context == "deal":
         sheets = [(
             "成交记录",
             ["成交号*", "订单号", "标的代码*", "市场", "方向", "价格*", "数量*", "成交时间", "currency", "fee", "asset_type", "unit", "标的名称"],
@@ -417,7 +420,7 @@ def import_excel_template(context: str = Query("position")) -> StreamingResponse
     else:
         sheets = [(
             "持仓快照",
-            ["标的代码*", "标的名称", "数量*", "当前价格*", "平均成本", "市场", "类型", "原币币种", "折算币种", "汇率", "仓位类型", "快照时间", "unit"],
+            ["标的代码*", "标的名称", "数量*", "当前价格*", "摊薄成本", "市场", "类型", "原币币种", "折算币种", "汇率", "仓位类型", "快照时间", "unit"],
             [None, None, None, None, None, None, None, None, None, None, None, None, None],
         )]
 
@@ -1573,8 +1576,8 @@ def _aggregate_positions(
                 "unit": unit,
                 "quantity": total_quantity,
                 "current_price": first.current_price if not hasattr(first, "ledger_result") or first.ledger_result["price"] is not None else None,
-                "average_cost": cost_basis if all(i.cost_method == "average" for i in group) and total_quantity else None,
-                "cost_method": "average" if all(i.cost_method == "average" for i in group) else "unknown",
+                "average_cost": cost_basis if len({i.cost_method for i in group}) == 1 and first.cost_method in {"average", "diluted"} and total_quantity else None,
+                "cost_method": first.cost_method if len({i.cost_method for i in group}) == 1 else "unknown",
                 "raw_market_value": sum(i.raw_market_value for i in group) if len({i.raw_currency for i in group}) == 1 else total_value,
                 "raw_currency": first.raw_currency if len({i.raw_currency for i in group}) == 1 else base_currency,
                 "normalized_market_value": total_value if all(not hasattr(i, "ledger_result") or i.ledger_result["market_value_cny"] is not None for i in group) else None,

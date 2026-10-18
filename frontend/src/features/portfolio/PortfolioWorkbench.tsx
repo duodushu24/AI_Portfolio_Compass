@@ -20,7 +20,7 @@ const marketOptions = [{ value: "CN", label: "境内市场" }, { value: "HK", la
 function FxFields({ values, setValues }: { values: Fields; setValues: (values: Fields) => void }) {
   return <details><summary>汇率（外币 → CNY；不填写则沿用历史有效值）</summary><div className="portfolio-fields">{["HKD", "USD"].map(c => <div key={c}><Field title={`${c}/CNY 汇率`} type="number" value={values[c]} onChange={v => setValues({ ...values, [c]: v })} /><Field title={`${c} 汇率实际时间（默认记录时间）`} type="datetime-local" value={values[`${c}_at`]} onChange={v => setValues({ ...values, [`${c}_at`]: v })} /></div>)}</div></details>;
 }
-function fxPayload(values: Fields, at: string) { return Object.fromEntries(Object.entries(values).filter(([c, v]) => currencies.includes(c) && v !== "").map(([c, rate]) => [c, { rate, at: utc(values[`${c}_at`] || at), source: "手工确认" }])); }
+function fxPayload(values: Fields, at: string, original: Opening["fx"] = {}) { return Object.fromEntries(Object.entries(values).filter(([c, v]) => currencies.includes(c) && v !== "").map(([c, rate]) => [c, { ...original[c], rate, at: utc(values[`${c}_at`] || at), source: original[c]?.rate === rate && new Date(original[c]?.at || "").getTime() === new Date(utc(values[`${c}_at`] || at)).getTime() ? original[c].source : "手工确认" }])); }
 
 export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAccount, revision = 0 }: { accountId: string; accounts: AccountSummary[]; onChanged: () => Promise<void>; onSelectAccount: (id: string) => void; revision?: number }) {
   const [data, setData] = useState<Portfolio | null>(null), [error, setError] = useState("");
@@ -28,6 +28,7 @@ export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAcc
   const [editor, setEditor] = useState<{ kind: string; record?: RecordItem } | null>(null);
   const request = useRef(0);
   async function reload() {
+    if (!accountId) return;
     const id = ++request.current;
     try {
       const [result, initial] = await Promise.all([portfolioApi.overview(accountId, "", "", "records"), portfolioApi.opening(accountId)]);
@@ -36,11 +37,11 @@ export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAcc
   }
   useEffect(() => { setEditor(null); }, [accountId]);
   useEffect(() => { setData(null); setOpening(null); void reload(); return () => { request.current++; }; }, [accountId, revision]);
-  async function saved() { setEditor(null); await onChanged(); }
+  async function saved() { setEditor(null); await onChanged(); await reload(); }
   const confirmed = !!opening?.confirmed;
   const accountNames = Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]));
   return <div className="stack">
-    <section className="panel stack"><div className="portfolio-toolbar"><div><h3>账户记账</h3><small>{confirmed ? "买卖自动维护摊薄成本和现金；更新市值自动保存收益点。" : "从首笔交易前的现金开始，或确认已有持仓作为统计起点。"}</small></div><Select aria-label="记账账户" value={accountId} options={accounts.map(a => ({ value: a.account_id, label: accountLabel(a.account_id, accountNames) }))} onChange={onSelectAccount} /><div className="inline-actions"><Button onClick={() => setEditor({ kind: "opening" })} disabled={!opening}>{confirmed ? "期初资料 / 纠错" : "设置账户起点"}</Button><Button type="primary" disabled={!confirmed} onClick={() => setEditor({ kind: "trade" })}>记录买卖</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "dividend" })}>记录分红</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "funds" })}>记录资金</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "valuation" })}>更新市值</Button>{confirmed && <Button onClick={() => setEditor({ kind: "history" })}>补录更早历史</Button>}</div></div>
+    <section className="panel stack"><div className="portfolio-toolbar"><div><h3>账户记账</h3><small>{confirmed ? "买卖自动维护摊薄成本和现金；更新市值自动保存收益点。" : "从首笔交易前的现金开始，或确认已有持仓作为统计起点。"}</small></div><Select aria-label="记账账户" value={accountId} options={accounts.map(a => ({ value: a.account_id, label: accountLabel(a.account_id, accountNames) }))} onChange={onSelectAccount} /><div className="inline-actions"><Button onClick={() => setEditor({ kind: "opening" })} disabled={!opening}>{confirmed ? "账户起点 / 纠错" : "手工建立起点"}</Button><Button type="primary" disabled={!confirmed} onClick={() => setEditor({ kind: "trade" })}>记录买卖</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "dividend" })}>记录分红</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "funds" })}>记录资金</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "valuation" })}>更新市值</Button>{confirmed && <Button onClick={() => setEditor({ kind: "history" })}>补录更早历史</Button>}</div></div>
       {error && <Alert type="error" content={error} />}
       {!!reconciliation.length && <Alert type={reconciliation.some(d => d.status === "mismatch") ? "warning" : "info"} content={<details><summary>{reconciliation.some(d => d.status === "mismatch") ? "来源资料与同一时点账目存在差异" : "部分来源日期尚未纳入统计范围"}</summary>{reconciliation.map(d => <p key={`${d.code}:${d.currency}:${d.source_at}`}>{d.code} · {timeLabel(d.source_at)} · {d.reason}{d.status === "mismatch" && <>；数量 {d.source_quantity} / {d.ledger_quantity}；摊薄成本 {numeric(d.source_average_cost)} / {numeric(d.ledger_average_cost)} {d.currency}（来源 / 同时点账目）</>}</p>)}<p>核对只比较相同日期；旧来源资料保留，不覆盖自动账目。</p></details>} />}
       {confirmed && <Table rowKey={r => `${r.category}:${r.id}`} data={data?.records ?? []} pagination={{ pageSize: 8 }} scroll={{ x: 900 }} columns={[
@@ -59,22 +60,47 @@ function EditorShell({ title, onClose, error, saving, onSave, children, saveText
   return <Drawer title={title} visible width={1050} onCancel={onClose} footer={<div className="inline-actions"><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={onSave}>{saveText}</Button></div>}><div className="portfolio-form">{error && <Alert type="error" content={error} />}{children}</div></Drawer>;
 }
 
-function OpeningEditor({ initial, confirmed, onClose, onSaved }: { initial: Opening; confirmed: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [mode, setMode] = useState(confirmed ? "snapshot" : "transactions");
+export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSave }: { initial: Opening; confirmed: boolean; onClose: () => void; onSaved: () => Promise<void>; onImportSave?: (payload: Opening) => Promise<boolean | void> }) {
+  const [mode, setMode] = useState("snapshot");
   const [at, setAt] = useState(local(initial.effective_at)), [included, setIncluded] = useState(initial.included), [includedAt, setIncludedAt] = useState(initial.included_at ? local(initial.included_at) : ""), [excludedAt, setExcludedAt] = useState(initial.excluded_at ? local(initial.excluded_at) : "");
-  const [positions, setPositions] = useState(confirmed ? initial.positions : []), [cash, setCash] = useState<Record<string, string>>(confirmed ? initial.cash : {}), [fx, setFx] = useState<Fields>(confirmed ? Object.fromEntries(Object.entries(initial.fx).flatMap(([c, v]) => [[c, v.rate], [`${c}_at`, local(v.at)]])) : {});
+  const [positions, setPositions] = useState(initial.positions), [cash, setCash] = useState<Record<string, string>>(initial.cash), [fx, setFx] = useState<Fields>(Object.fromEntries(Object.entries(initial.fx).flatMap(([c, v]) => [[c, v.rate], [`${c}_at`, local(v.at)]])));
+  const [historical, setHistorical] = useState(initial.historical_profit_cny ?? ""), [profitNote, setProfitNote] = useState(initial.historical_profit_note ?? "");
   const [error, setError] = useState(""), [saving, setSaving] = useState(false);
+  const [checked, setChecked] = useState<{key: string; result: Portfolio} | null>(null);
+  useEffect(() => { setChecked(null); }, [mode, at, included, includedAt, excludedAt, positions, cash, fx, historical, profitNote]);
   const update = (index: number, change: Partial<OpeningAsset>) => setPositions(rows => rows.map((r, i) => i === index ? { ...r, ...change } : r));
+  const payload = (): Opening => ({ ...initial, effective_at: utc(at), included, included_at: includedAt ? utc(includedAt) : null, excluded_at: excludedAt ? utc(excludedAt) : null,
+    positions: positions.map(p => ({ ...p, price_at: p.price_at || utc(at) })), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")),
+    liabilities: mode === "snapshot" ? initial.liabilities || {} : {}, fx: fxPayload(fx, at, initial.fx),
+    historical_profit_cny: historical === "" ? null : historical, historical_profit_note: profitNote,
+    source: mode === "transactions" ? "首笔交易前的账户起点" : initial.source || "用户确认" });
+  async function check() {
+    setSaving(true); setError("");
+    try {
+      const data = payload();
+      if (!Object.keys(data.cash).length) throw new Error("请填写至少一种币种现金；无现金请明确填 0");
+      const result = await portfolioApi.previewOpening(initial.account_id, data, confirmed);
+      setChecked({key: JSON.stringify(data), result});
+    } catch (e) { setChecked(null); setError(e instanceof Error ? e.message : "试算失败"); }
+    finally { setSaving(false); }
+  }
   async function save() {
     setSaving(true); setError("");
-    try { await portfolioApi.saveOpening(initial.account_id, { effective_at: utc(at), included, included_at: includedAt ? utc(includedAt) : null, excluded_at: excludedAt ? utc(excludedAt) : null, positions: positions.map(p => ({ ...p, price_at: p.price_at || utc(at) })), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")), liabilities: mode === "snapshot" ? initial.liabilities || {} : {}, fx: fxPayload(fx, at), source: mode === "transactions" ? "首笔交易前的账户起点" : initial.source || "用户确认" }, confirmed); await onSaved(); }
-    catch (e) { setError(e instanceof Error ? e.message : "保存失败"); } finally { setSaving(false); }
+    try {
+      const data = payload();
+      if (!checked || checked.key !== JSON.stringify(data)) throw new Error("请先试算核对；修改资料后需重新试算");
+      if (onImportSave) { if (await onImportSave(data) === false) throw new Error("导入未完成，请检查页面提示"); }
+      else await portfolioApi.saveOpening(initial.account_id, data, confirmed);
+      await onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : "保存失败"); } finally { setSaving(false); }
   }
-  return <EditorShell title={confirmed ? "期初资料与组合范围纠错" : "确认账户期初"} onClose={onClose} error={error} saving={saving} onSave={save}>
-    {!confirmed && <Field title="录入方式" value={mode} options={[{ value: "transactions", label: "从首笔交易开始（推荐）" }, { value: "snapshot", label: "从已有持仓开始" }]} onChange={value => { setMode(value); setPositions(value === "snapshot" ? initial.positions : []); setCash(value === "snapshot" ? initial.cash : {}); setFx(value === "snapshot" ? Object.fromEntries(Object.entries(initial.fx).map(([c, v]) => [c, v.rate])) : {}); }} />}
+  return <EditorShell title={confirmed ? "账户起点 / 纠错" : "确认账户起点"} onClose={onClose} error={error} saving={saving} onSave={save}>
+    {!confirmed && <Field title="录入方式" value={mode} options={[{ value: "transactions", label: "从首笔交易开始" }, { value: "snapshot", label: "从当前资产开始" }]} onChange={value => { setMode(value); setPositions(value === "snapshot" ? initial.positions : []); setCash(value === "snapshot" ? initial.cash : {}); setFx(value === "snapshot" ? Object.fromEntries(Object.entries(initial.fx).map(([c, v]) => [c, v.rate])) : {}); }} />}
     <p>{mode === "transactions" ? "起点设在首笔交易之前，填写当时真实现金；也可从零现金开始，再记录首笔入金。保存后逐笔记录买卖，首次成交价自动作为初始报价，手续费进入摊薄成本。不要重复填写同一笔买入的期初持仓。" : "期初资产作为统计区间起点；原币摊薄成本用于持仓和卖出盈亏。已有持仓的价格填写当时报价，不以成本伪造市场价格。成本未知可以留空。"}</p>
     <div className="portfolio-fields"><Field title="期初实际时间" type="datetime-local" value={at} onChange={setAt} /><Field title="纳入组合时间（默认期初）" type="datetime-local" value={includedAt} onChange={setIncludedAt} /><Field title="移出组合时间（可留空）" type="datetime-local" value={excludedAt} onChange={setExcludedAt} /></div>
     <Checkbox checked={included} onChange={setIncluded}>纳入全账户收益范围（与账户同步启用开关无关）</Checkbox>
+    <div className="portfolio-fields"><Field title="历史结转盈亏（CNY，可留空）" type="number" value={historical} onChange={setHistorical} /><Field title="历史收益来源 / 统计期间" value={profitNote} onChange={setProfitNote} /></div>
+    <small>仅填写未包含在当前持仓盈亏中的历史已实现盈亏；不增加现金、不改变持仓成本。明确无历史盈亏填 0，留空表示未知。</small>
     <fieldset><legend>期初各币种现金（实际可用余额）</legend><div className="portfolio-fields">{currencies.map(c => <Field key={c} title={`${c} 现金`} type="number" value={cash[c] ?? ""} onChange={v => setCash({ ...cash, [c]: v })} />)}</div></fieldset>
     <small>银行黄金请在名称中写明银行及产品，按克和元／克填写；不同产品分别添加，已有产品后续通过买卖维护。</small>
     {positions.map((p, i) => <fieldset key={i}><legend>期初持仓 {i + 1}</legend><div className="portfolio-fields portfolio-opening-row">
@@ -86,16 +112,19 @@ function OpeningEditor({ initial, confirmed, onClose, onSaved }: { initial: Open
       {p.currency !== "CNY" && <Field title="历史人民币剩余成本（有依据才填）" type="number" value={p.cost_cny_amount} onChange={v => update(i, { cost_cny_amount: v || null })} />}
     </div><Button status="danger" size="small" onClick={() => setPositions(rows => rows.filter((_, j) => i !== j))}>移除此期初行</Button></fieldset>)}
     {mode === "snapshot" && <Button onClick={() => setPositions(rows => [...rows, emptyAsset()])}>添加期初持仓</Button>}<FxFields values={fx} setValues={setFx} />
+    <Button disabled={saving} onClick={check}>试算核对</Button>
+    {checked && <Alert type="info" content={<div>试算净资产 {numeric(checked.result.current?.total_assets ?? null)} CNY · 累计盈亏 {numeric(checked.result.current?.cumulative_profit ?? null)} CNY<p>保存前请核对资产、成本及历史结转。累计盈亏为空时，历史收益、期初成本或估值尚未补齐。</p>{checked.result.current?.issues.map(i => <p key={i}>{i}</p>)}</div>} />}
     {confirmed && <Alert type="warning" content="纠错会重算建档后的成本、现金和收益。日常买卖请返回记录买卖；增减本金请记录资金。" />}
   </EditorShell>;
 }
 
 function HistoryEditor({ initial, accounts, portfolio, onClose, onSaved }: { initial: Opening; accounts: AccountSummary[]; portfolio: Portfolio | null; onClose: () => void; onSaved: () => Promise<void> }) {
   const [at, setAt] = useState(""), [cash, setCash] = useState<Fields>({}), [fx, setFx] = useState<Fields>({});
+  const [historical, setHistorical] = useState("");
   const [entries, setEntries] = useState<HistoryEntry[]>([]), [editing, setEditing] = useState<{ kind: string; index?: number } | null>(null);
   const [preview, setPreview] = useState<HistoryPreview | null>(null), [acknowledged, setAcknowledged] = useState(false), [error, setError] = useState(""), [saving, setSaving] = useState(false);
-  useEffect(() => { setPreview(null); setAcknowledged(false); }, [at, cash, fx, entries]);
-  const payload = () => ({ opening: { effective_at: utc(at), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")), fx: fxPayload(fx, at) }, records: entries, confirm_differences: acknowledged });
+  useEffect(() => { setPreview(null); setAcknowledged(false); }, [at, cash, fx, entries, historical]);
+  const payload = () => ({ opening: { effective_at: utc(at), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")), fx: fxPayload(fx, at), historical_profit_cny: historical === "" ? null : historical }, records: entries, confirm_differences: acknowledged });
   async function calculate() {
     setSaving(true); setError("");
     try { setPreview(await portfolioApi.previewHistory(initial.account_id, payload())); }
@@ -115,6 +144,8 @@ function HistoryEditor({ initial, accounts, portfolio, onClose, onSaved }: { ini
     <p>原统计起点：{timeLabel(initial.effective_at)}。从更早的首笔交易前开始，填写当时现金并添加截至原起点的历史记录。试算不会保存；确认后统一替换起点并补录交易，原起点资料保留用于核对，不重复计入持仓。</p>
     <Field title="新起点实际时间" type="datetime-local" value={at} onChange={setAt} />
     <fieldset><legend>新起点现金（可全为零，再添加入金记录）</legend><div className="portfolio-fields">{currencies.map(c => <Field key={c} title={`${c} 现金`} type="number" value={cash[c]} onChange={v => setCash({ ...cash, [c]: v })} />)}</div></fieldset>
+    <Field title="新起点之前的历史结转盈亏（CNY，未知留空）" type="number" value={historical} onChange={setHistorical} />
+    <small>向前补录后需重新核对结转金额，不能把已补录的历史收益再结转一次。</small>
     <FxFields values={fx} setValues={setFx} />
     <div className="inline-actions"><Button disabled={!at || saving} onClick={() => setEditing({ kind: "trade" })}>添加历史买卖</Button><Button disabled={!at || saving} onClick={() => setEditing({ kind: "funds" })}>添加历史资金</Button></div>
     <Table rowKey="index" pagination={false} data={entries.map((e, index) => ({ ...e, index }))} columns={[
@@ -124,7 +155,7 @@ function HistoryEditor({ initial, accounts, portfolio, onClose, onSaved }: { ini
     ]} />
     <Button type="primary" loading={saving} disabled={!at || !entries.length} onClick={calculate}>试算并核对原起点</Button>
     {preview && <><Alert type={preview.differences.length ? "warning" : "success"} content={preview.differences.length ? "补录后的原起点数量、成本或现金存在差异，请核对记录。" : "原起点数量、已知成本及现金核对一致，可以确认保存。"} />
-      <p>补录 {preview.record_count} 条 · 当前总资产 {numeric(preview.current.total_assets)} CNY · 累计账户盈亏 {numeric(preview.current.profit)} CNY</p>
+      <p>补录 {preview.record_count} 条 · 当前总资产 {numeric(preview.current.total_assets)} CNY · 统计期盈亏 {numeric(preview.current.profit)} CNY</p>
       {preview.differences.length > 0 && <><Table rowKey="item" pagination={false} data={preview.differences} columns={[{ title: "核对项目", dataIndex: "item" }, { title: "原资料", dataIndex: "before" }, { title: "补录结果", dataIndex: "after" }]} /><Checkbox checked={acknowledged} onChange={setAcknowledged}>已核对差异，确认以本次历史记录重建账目（不会自动补造现金或交易）</Checkbox></>}
       {!!(preview.current.issues.length + preview.current.performance_issues.length) && <Alert type="warning" content={[...preview.current.issues, ...preview.current.performance_issues].join("；")} />}
     </>}
@@ -170,14 +201,14 @@ function EntryEditor({ accountId, accounts, kind, record, portfolio, onClose, on
   async function save() {
     setSaving(true); setError("");
     try {
-      const effective_at = utc(at), rates = fxPayload(fx, at);
+      const effective_at = utc(at), rates = fxPayload(fx, at, d.fx as Opening["fx"] || {});
       if (kind === "trade") {
         if (onStage) onStage({ kind: "trade", effective_at, data: { ...fields, fx: rates } });
         else await portfolioApi.saveTrade({ ...fields, account_id: aid, effective_at, fx: rates }, record?.id);
       }
       else if (kind === "valuation") {
         if (!record && loadedAt !== at) throw new Error("正在读取该实际时点持仓，请稍后保存");
-        await portfolioApi.saveEvent({ kind: "valuation", account_id: aid, effective_at, data: { prices: prices.filter(p => p.input_value !== "").map(p => ({ ...p, price: p.input_mode === "price" ? p.input_value : undefined, market_value: p.input_mode === "market_value" ? p.input_value : undefined })), fx: rates, note: fields.note || "" } }, record?.id);
+        await portfolioApi.saveEvent({ kind: "valuation", account_id: aid, effective_at, data: { ...d, prices: prices.filter(p => p.input_value !== "").map(p => ({ ...p, price: p.input_mode === "price" ? p.input_value : undefined, market_value: p.input_mode === "market_value" ? p.input_value : undefined })), fx: rates, note: fields.note || "" } }, record?.id);
       } else if (onStage) onStage({ kind: fundKind, effective_at, data: { ...fields, fx: rates } });
       else await portfolioApi.saveEvent({ kind: fundKind, account_id: aid, effective_at, data: { ...fields, fx: rates } }, record?.id);
       await onSaved();
@@ -191,6 +222,7 @@ function EntryEditor({ accountId, accounts, kind, record, portfolio, onClose, on
       {[ ...(fields.asset_type === "precious_metal" ? [] : [["code", "标的代码"]]), ["name", "标的名称"] ].map(([key, title]) => <Field key={key} title={title} value={fields[key]} onChange={v => set(key, v)} />)}
       <Field title="市场" value={fields.market} options={marketOptions} onChange={v => set("market", v)} /><Field title="币种" value={fields.currency} options={options(currencies)} onChange={v => set("currency", v)} /><Field title="资产类型" value={fields.asset_type} options={assetOptions} onChange={v => setFields(f => ({ ...f, asset_type: v, unit: assetUnit(v), ...(v === "precious_metal" ? { code: goldCode(), market: "CN", currency: "CNY" } : {}) }))} />
       {[ ["quantity", `成交数量（${unitLabel(fields.unit)}）`], ["price", `成交价格（${priceUnit(fields.currency, fields.unit)}）`], ["fees", "总费用（含佣金税费）"] ].map(([key, title]) => <Field key={key} title={title} type="number" value={fields[key]} onChange={v => set(key, v)} />)}</div>
+      <Field title="成交金额（有明确清算依据才填；留空按数量 × 价格）" type="number" value={fields.gross_amount || ""} onChange={v => set("gross_amount", v)} />
       {fields.side === "SELL" && <>{!onStage && <Button onClick={() => { const a = assets.find(p => p.code === fields.code && p.currency === fields.currency && p.unit === fields.unit); if (a) set("quantity", a.quantity); }}>卖出全部当前持仓</Button>}<Field title="资金结算" value={fields.settlement} options={[{ value: "cash", label: "现金已到账" }, { value: "pending", label: "已确认赎回，资金待到账" }]} onChange={v => set("settlement", v)} /></>}
       {fields.side === "BUY" && <Field title="关联待确认申购（普通买入留空）" value={fields.pending_id || ""} options={[{ value: "", label: "普通现金买入" }, ...(context?.current?.pending ?? []).filter(p => p.kind === "subscription").map(p => ({ value: p.pending_id, label: `${p.pending_id} · ${p.amount} ${p.currency}` }))]} onChange={v => set("pending_id", v)} />}
       {fields.asset_type === "precious_metal" && <p>请填写银行及产品名称；每个新产品自动分配独立标识。再次买卖请选择已有产品。资金按真实入金或转账记录，买入扣减账户现金。初始成交价不代表银行可赎回价，之后请更新银行报价。</p>}

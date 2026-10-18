@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode, ThHTMLAttributes } from "react";
 import { Alert, Button, Checkbox, Descriptions, Drawer, Dropdown, Empty as ArcoEmpty, Form, Input, Menu, Modal, Select, Spin, Table, Tabs, Tag, Upload } from "@arco-design/web-react";
 import { api, AccountDataOverview, AccountDeal, AccountSummary, AIAnalysis, AIConfigResponse, AIRuntimeConfig, AIWorkflowRun, Dashboard, DealPayload, DecisionCard, HealthStatus, ImportPreview, InvestorPreference, KLineItem, KLineResponse, NewsItem, Position, PositionSnapshotPayload, Profile, ProviderState, Review, TradeIntentPlan, TradeIntentTags, TradeReview, TradeReviewList, WorkflowArtifact, WorkflowStep } from "../api";
-import { PortfolioWorkbench } from "./portfolio/PortfolioWorkbench";
+import { OpeningEditor, PortfolioWorkbench } from "./portfolio/PortfolioWorkbench";
 import { AssetTable, PortfolioPanel } from "./portfolio/PortfolioPanel";
 
 const layers = ["全部", "核心长期仓", "中期配置仓", "短期交易仓", "期权仓", "遗留观察仓"];
@@ -310,7 +310,7 @@ export function Home({
       {emptySystem ? <FutuConnectionCard health={health} onRefresh={onFutuRefresh} onSync={onFutuSync} /> : null}
       {dashboard && dashboard.portfolio.total_assets == null && <Alert type="warning" content="账目缺少价格或汇率；完整资产与收益暂不可用，请到账户与数据补录。" />}
       {!dashboard || (dashboard.empty && !dashboard.portfolio.account_count) ? (
-        <Empty title="暂无持仓数据" body="连接 OpenD 并刷新后，这里会显示组合风险、持仓事项和数据状态。" />
+        <Empty title="暂无持仓数据" body="到账户与数据导入标准模板或手工建立账户起点，即可查看资产配置与收益。" />
       ) : (
         <>
           <section className="home-insight-grid">
@@ -3085,6 +3085,16 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
     setNotice("正在校验 Excel 数据");
     try {
       const result = await api.importPreview("excel", file, activeAccountId);
+      if (!overview?.ledger_enrolled && result.position_count > 0 && !result.import_kind && !result.deal_count) {
+        result.import_kind = "opening";
+        result.opening_payload = {
+          account_id: activeAccountId, effective_at: result.positions[0]?.snapshot_time || new Date().toISOString(), included: true,
+          cash: result.account_snapshot && result.account_snapshot.cash != null ? { [activeAccount?.base_currency || "CNY"]: String(result.account_snapshot.cash) } : {}, fx: {},
+          positions: result.positions.map(p => ({ code: p.code, name: p.name, market: p.market, currency: p.raw_currency, asset_type: p.asset_type, unit: p.unit || assetUnit(p.asset_type), quantity: String(p.quantity), average_cost: null, price: String(p.current_price), price_at: p.snapshot_time })),
+          historical_profit_cny: null, source: "Excel 持仓资料确认起点",
+        };
+        result.warnings = [...(result.warnings || []), "旧模板成本口径未确认，请核对并填写摊薄成本、现金和历史结转盈亏"];
+      }
       setPreview(result);
       if (result.errors?.length) {
         setNotice(`文件未导入：${result.errors[0]}`);
@@ -3116,8 +3126,10 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
       setPreview(null);
       await onImported();
       if (activeAccountId) setOverview(await api.accountDataOverview(activeAccountId));
+      return true;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "导入失败");
+      return false;
     } finally {
       setImporting(false);
     }
@@ -3127,7 +3139,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
     setDownloadingTemplate(true);
     setNotice("正在下载 Excel 模板");
     try {
-      await api.downloadImportTemplate(activeDataTab === "deals" ? "deal" : "position");
+      await api.downloadImportTemplate(activeDataTab === "deals" ? "deal" : overview?.ledger_enrolled ? "position" : "opening");
       setNotice("Excel 模板已开始下载");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Excel 模板下载失败");
@@ -3227,7 +3239,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
 
   const activeImportModes = importModesForAccount(activeAccount);
   const canImportApi = activeImportModes.includes("api");
-  const canImportLocal = activeImportModes.includes("local");
+  const canImportLocal = true; // Standard Excel input is available independently of broker connections.
 
   return (
     <div className="data-console stack">
@@ -3405,7 +3417,7 @@ export function AccountOverviewHeader({ account, overview, showAccountManagement
   );
 }
 
-export function DataUpdatePanel({ canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, preview, onConfirmImport }: { canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; preview: ImportPreview | null; onConfirmImport: () => Promise<void> }) {
+export function DataUpdatePanel({ canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, preview, onConfirmImport }: { canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; preview: ImportPreview | null; onConfirmImport: () => Promise<boolean | void> }) {
   return (
     <section className="panel data-update-panel">
       <div className="toolbar data-update-toolbar">
@@ -3483,7 +3495,7 @@ export function DataDetailTabs({
   onPullAccountData: (dataType: string) => Promise<void>;
   pullingDataType: string | null;
   preview: ImportPreview | null;
-  onConfirmImport: (options?: Partial<ImportPreview>) => Promise<void>;
+  onConfirmImport: (options?: Partial<ImportPreview>) => Promise<boolean | void>;
   onSelectAccount: (accountId: string) => void;
   onAddPosition: () => void;
   onEditPosition: (position: Position) => void;
@@ -3532,7 +3544,7 @@ export function DataDetailTabs({
             <div className="data-detail-action-row">
               <div className="data-detail-meta">更新时间 {overview?.updated_at.position ? formatDate(overview.updated_at.position) : "暂无刷新记录"}</div>
               <DataTableActions
-                readOnly={overview?.ledger_enrolled}
+                readOnly={true}
                 isPositionTab={isPositionTab}
                 canImportApi={canImportApi}
                 canImportLocal={canImportLocal}
@@ -3548,7 +3560,7 @@ export function DataDetailTabs({
               />
             </div>
             {overview?.ledger_enrolled ? <><AssetTable assets={(overview.ledger_positions ?? []).filter(p => Number(p.quantity) > 0)} maskAssets={assetMaskEnabled} accountNames={Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]))} onOpen={setDetailCode} />
-              <small className="metadata-note">点击标的查看成交历史。已清仓查询独立列出历次退出；下方账户记账维护买卖、资金和市值。</small></> : <AccountPositionsTable positions={(overview?.positions ?? []).filter(p => p.quantity > 0)} onEdit={onEditPosition} onDelete={onDeletePosition} />}
+              <small className="metadata-note">点击标的查看成交历史。已清仓查询独立列出历次退出；下方账户记账维护买卖、资金和市值。</small></> : <AccountPositionsTable readOnly positions={(overview?.positions ?? []).filter(p => p.quantity > 0)} onEdit={onEditPosition} onDelete={onDeletePosition} />}
           </div>
         </Tabs.TabPane>
         <Tabs.TabPane key="closed" title="已清仓查询"><ClosedPositions accountId={activeAccount.account_id} accounts={accounts} revision={overview} maskAssets={assetMaskEnabled} /></Tabs.TabPane>
@@ -3560,7 +3572,7 @@ export function DataDetailTabs({
             <div className="data-detail-action-row">
               <div className="data-detail-meta">更新时间 {overview?.updated_at.deal ? formatDate(overview.updated_at.deal) : "暂无刷新记录"}</div>
               <DataTableActions
-                readOnly={overview?.ledger_enrolled}
+                readOnly={true}
                 isPositionTab={isPositionTab}
                 canImportApi={canImportApi}
                 canImportLocal={canImportLocal}
@@ -3575,7 +3587,7 @@ export function DataDetailTabs({
                 onAdd={onAddDeal}
               />
             </div>
-            <AccountDealsTable deals={overview?.deals ?? []} onEdit={onEditDeal} onDelete={onDeleteDeal} readOnly={overview?.ledger_enrolled} />
+            <AccountDealsTable deals={overview?.deals ?? []} onEdit={onEditDeal} onDelete={onDeleteDeal} readOnly={true} />
           </div>
         </Tabs.TabPane>
         {apiOnlySources.map((source) => (
@@ -4388,7 +4400,18 @@ export function AccountDealsTable({ deals, onEdit, onDelete, readOnly = false }:
   );
 }
 
-export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview: ImportPreview; importing: boolean; onConfirm: (options?: Partial<ImportPreview>) => void }) {
+function OpeningImportPreview({ preview, onConfirm }: {preview: ImportPreview; onConfirm: (options?: Partial<ImportPreview>) => Promise<boolean | void> | void}) {
+  const [editing, setEditing] = useState(false);
+  if (preview.errors?.length || !preview.opening_payload) return <Alert type="error" content={preview.errors?.join("；") || "起点资料不完整"} />;
+  const initial = { ...preview.opening_payload, account_id: String(preview.account.account_id), included: true };
+  return <section className="panel stack"><p>账户起点导入 · {preview.position_count} 项持仓。请核对资产、摊薄成本及历史结转盈亏。</p>
+    {preview.warnings?.map(w => <p key={w}>{w}</p>)}
+    <Button type="primary" onClick={() => setEditing(true)}>核对账户起点</Button>
+    {editing && <OpeningEditor initial={initial} confirmed={false} onClose={() => setEditing(false)} onSaved={async () => setEditing(false)} onImportSave={async data => onConfirm({opening_payload: data})} />}
+  </section>;
+}
+
+export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview: ImportPreview; importing: boolean; onConfirm: (options?: Partial<ImportPreview>) => Promise<boolean | void> | void }) {
   const [completeness, setCompleteness] = useState<"partial" | "full">("partial");
   const [confirmedCost, setConfirmedCost] = useState(false);
   const [marketScope, setMarketScope] = useState("");
@@ -4409,6 +4432,7 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
     quantity: 120,
     deal_time: 180,
   });
+  if (preview.import_kind === "opening") return <OpeningImportPreview key={preview.import_hash} preview={preview} onConfirm={onConfirm} />;
   const deals = preview.deals ?? [];
   const isDealPreview = deals.length > 0 && preview.position_count === 0;
   const buyCount = deals.filter((item) => item.side === "BUY").length;
@@ -4440,7 +4464,7 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
           <label>实际持仓时间 <Input type="datetime-local" value={holdingTime} onChange={setHoldingTime} /></label>
           <p>完整更新会使所选范围内未列出的标的退出当前持仓，旧记录仍可查阅。</p>
         </> : null}
-        <Checkbox checked={confirmedCost} onChange={setConfirmedCost}>已核对文件中的成本为平均成本</Checkbox>
+        <Checkbox checked={confirmedCost} onChange={setConfirmedCost}>已核对文件中的成本为摊薄成本</Checkbox>
       </div> : null}
       {preview.positions.length ? (
         <Table
@@ -4505,7 +4529,7 @@ export function ImportPreviewPanel({ preview, importing, onConfirm }: { preview:
         />
       ) : null}
       <Button type="primary" onClick={() => onConfirm({ holding_completeness: completeness,
-        confirm_average_cost: confirmedCost, holding_market: marketScope,
+        confirm_diluted_cost: confirmedCost, holding_market: marketScope,
         holding_observed_at: completeness === "full" && holdingTime ? new Date(holdingTime).toISOString() : undefined })}
         disabled={importing || !preview.can_confirm || !!preview.errors?.length || (completeness === "full" && !holdingTime)} loading={importing}>确认导入</Button>
     </div>

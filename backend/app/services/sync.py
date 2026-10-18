@@ -311,8 +311,8 @@ def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
             if not same_fact or existing_position.is_void:
                 raise ValueError("该账户标的在相同时点已有不同记录；请纠错或选择新的实际时点")
             existing_position.batch_id = batch.id
-            if payload.get("cost_method") == "average":
-                existing_position.cost_method = "average"
+            if payload.get("cost_method") in {"average", "diluted"}:
+                existing_position.cost_method = payload["cost_method"]
             updated += 1
         else:
             db.add(PositionSnapshot(**payload))

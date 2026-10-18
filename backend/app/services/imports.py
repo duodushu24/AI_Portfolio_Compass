@@ -33,6 +33,10 @@ def preview_import(source: str, filename: str, content: bytes, account_id: str =
     source = _normalize_source(source)
     file_hash = hashlib.sha256(content).hexdigest()
     if source == "excel":
+        from app.services.portfolio.opening_import import preview as preview_opening
+        opening = preview_opening(content, account_id, file_hash)
+        if opening is not None:
+            return {**opening, "filename": filename}
         snapshot, errors, warnings = _parse_excel_import(content, file_hash, account_id, base_currency)
     elif source == "alipay":
         snapshot = _parse_alipay_pdf(content, file_hash)
@@ -73,6 +77,9 @@ def preview_import(source: str, filename: str, content: bytes, account_id: str =
 def confirm_import(db: "Session", preview: dict[str, Any]) -> dict[str, Any]:
     if preview.get("errors"):
         raise ValueError("导入预览存在错误，请修正后再确认")
+    if preview.get("import_kind") == "opening":
+        from app.services.portfolio.opening_import import confirm
+        return confirm(db, preview)
     source = str(preview.get("source_name", "manual"))
     file_hash = str(preview.get("import_hash", ""))
     snapshot_payload = preview.get("snapshot") or {}
@@ -91,9 +98,10 @@ def confirm_import(db: "Session", preview: dict[str, Any]) -> dict[str, Any]:
     if completeness not in {"partial", "full"}:
         raise ValueError("持仓范围必须为完整或局部")
     for p in snapshot.positions:
-        p["cost_method"] = "average" if preview.get("confirm_average_cost") else "unknown"
-        if any(not math.isfinite(p[key]) or p[key] < 0 for key in ("quantity", "average_cost", "current_price")):
-            raise ValueError("数量、价格和平均成本不能为负")
+        provided = p.pop("_cost_provided", True)
+        p["cost_method"] = ("diluted" if preview.get("confirm_diluted_cost") else "average" if preview.get("confirm_average_cost") else "unknown") if provided else "unknown"
+        if any(not math.isfinite(p[key]) for key in ("quantity", "average_cost", "current_price")) or p["quantity"] < 0 or p["current_price"] < 0 or p["average_cost"] < 0 and p["cost_method"] != "diluted":
+            raise ValueError("数量和价格不能为负；负成本需确认摊薄成本口径")
     if completeness == "full":
         if not snapshot.positions:
             raise ValueError("空仓请使用明确的空仓确认入口；成交导入不清空持仓")
@@ -115,7 +123,7 @@ def confirm_import(db: "Session", preview: dict[str, Any]) -> dict[str, Any]:
     account_id = snapshot.accounts[0]["account_id"] if snapshot.accounts else ""
     existing = db.get(Account, account_id) if account_id else None
     # Repeating the same confirmation is idempotent; changing the declared scope/time is a new observation.
-    context = f"import:{source}:{file_hash}:{account_id}:{completeness}:{preview.get('holding_market', '')}:{preview.get('holding_observed_at', '')}:{bool(preview.get('confirm_average_cost'))}"
+    context = f"import:{source}:{file_hash}:{account_id}:{completeness}:{preview.get('holding_market', '')}:{preview.get('holding_observed_at', '')}:{bool(preview.get('confirm_average_cost'))}:{bool(preview.get('confirm_diluted_cost'))}"
     task = db.scalar(select(SyncTask).where(SyncTask.idempotency_key == context).order_by(SyncTask.start_time.desc()))
     sync_id = task.sync_id if task else f"import_{source}_{uuid4().hex}"
     if existing and existing.last_import_hash == file_hash and task and task.status == "成功":
@@ -268,6 +276,7 @@ def _parse_excel_import(content: bytes, file_hash: str, account_id: str, base_cu
                     "unit": unit,
                     "quantity": quantity,
                     "average_cost": average_cost,
+                    "_cost_provided": row.get("average_cost") not in (None, ""),
                     "current_price": current_price,
                     "raw_market_value": market_value,
                     "raw_currency": currency,
@@ -651,7 +660,7 @@ def _sheet_rows(sheet: Any) -> list[tuple[int, dict[str, Any]]]:
 
 EXCEL_HEADER_ALIASES = {
     "标的代码*": "code", "标的代码": "code", "标的名称": "name", "数量*": "quantity", "数量": "quantity",
-    "当前价格*": "current_price", "当前价格": "current_price", "平均成本": "average_cost", "市场": "market",
+    "当前价格*": "current_price", "当前价格": "current_price", "平均成本": "average_cost", "摊薄成本": "average_cost", "市场": "market",
     "类型": "asset_type", "原币币种": "currency", "折算币种": "normalized_currency", "汇率": "exchange_rate_to_base",
     "仓位类型": "position_layer", "快照时间": "snapshot_time", "成交号*": "deal_id", "成交号": "deal_id",
     "成交编号*": "deal_id", "成交编号": "deal_id", "订单号": "order_id", "订单编号": "order_id",

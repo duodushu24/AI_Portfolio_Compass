@@ -52,7 +52,7 @@ def test_joint_import_cash_cost_scope_and_idempotency(db):
     batch = prepare(*sources())
     report = replace_ledger(db, "gf", batch, commit=True)
     assert report["records"] == 6 and report["cash"]["CNY"] == "864.0"
-    assert D(report["cost"]) == D("41")
+    assert D(report["cost"]) == D("36")
     assert D(report["closed_profit"]) == 0
     overview = service.overview(db, "gf")
     assert overview["current"]["total_assets"] is None

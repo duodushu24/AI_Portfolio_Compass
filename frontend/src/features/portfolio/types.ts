@@ -10,6 +10,8 @@ export type Asset = {
 };
 export type FxUse = { rate: string; at: string; source: string; carried?: boolean; is_estimate?: boolean; selection?: string };
 export type Point = {
+  cumulative_profit: string | null; known_cumulative_profit: string; missing_cumulative_accounts: string[];
+  account_profits: Array<{account_id: string; historical_profit_cny: string | null; opening_holding_profit: string | null; opening_profit: string | null; profit_since_opening: string | null; cumulative_profit: string | null}>;
   observed_at: string; event_type: string; account_id: string; record_id: number | null;
   valuation_date?: string | null;
   fx_basis?: Record<string, FxUse>;
@@ -28,7 +30,7 @@ export type ChartPoint = Pick<Point, "observed_at" | "event_type" | "record_id" 
 };
 export type RecordItem = { id: number; category: "trade" | "event"; kind: string; account_id: string; effective_at: string; data: Record<string, unknown>; is_void: boolean };
 export type OpeningAsset = { code: string; name: string; market: string; currency: string; asset_type: string; unit: string; quantity: string; average_cost: string | null; price: string | null; price_at?: string; cost_cny_amount?: string | null };
-export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string }>; source?: string };
+export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string; is_estimate?: boolean }>; source?: string; historical_profit_cny?: string | null; historical_profit_note?: string };
 export type Portfolio = { current: Point | null; points: ChartPoint[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string>; holdings: Asset[]; allocation: Array<{ type: string; weight: string }>; coverage: { included_accounts: string[]; unenrolled_accounts: string[] } };
 
 export type Reconciliation = { code: string; currency: string; source_at: string; status: "mismatch" | "uncovered"; reason: string;

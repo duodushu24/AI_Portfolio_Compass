@@ -169,6 +169,9 @@ def save_opening(db, account_id, payload, correction=False, commit=True):
     liabilities = {currency(c): str(number(v, minimum=ZERO)) for c, v in payload.get("liabilities", {}).items()}
     data = {"positions": positions, "cash": cash, "liabilities": liabilities, "cost_method": "diluted", "effective_at": iso(at),
             "source": str(payload.get("source") or "用户确认期初"), **quotes({"prices": prices, "fx": payload.get("fx", {})}, at)}
+    carry = payload.get("historical_profit_cny", previous.data.get("historical_profit_cny") if previous else None)
+    data["historical_profit_cny"] = None if carry in (None, "") else str(number(carry))
+    data["historical_profit_note"] = str(payload.get("historical_profit_note", previous.data.get("historical_profit_note", "") if previous else ""))
     if previous and previous.data.get("history_checkpoints"):
         data["history_checkpoints"] = deepcopy(previous.data["history_checkpoints"])
     if previous:
@@ -187,6 +190,17 @@ def save_opening(db, account_id, payload, correction=False, commit=True):
     return transaction(db, write) if commit else write()
 
 
+def preview_opening(db, account_id, payload, correction=False):
+    """Use the exact save path, including downstream validation, without committing."""
+    try:
+        save_opening(db, account_id, payload, correction=correction, commit=False)
+        db.flush()
+        validate(db)
+        return overview(db, account_id, view="current")
+    finally:
+        db.rollback()
+
+
 def rebuild_history(db, account_id, payload, *, preview=False):
     """Move an existing opening backwards and add its missing history as one transaction."""
     def write():
@@ -199,6 +213,7 @@ def rebuild_history(db, account_id, payload, *, preview=False):
             raise ValueError("补录历史的新起点必须早于原起点")
         before = calculate(db, account_id, old_at)["current"]
         start = {**payload["opening"], "positions": [], "liabilities": {}, "source": "从首笔交易前补录历史",
+                 "historical_profit_cny": payload["opening"].get("historical_profit_cny"),
                  "included": old.included_at is not None,
                  "included_at": iso(new_at if old.included_at == old_at else old.included_at) if old.included_at else None,
                  "excluded_at": iso(old.excluded_at) if old.excluded_at else None}
@@ -235,6 +250,7 @@ def rebuild_history(db, account_id, payload, *, preview=False):
             label = f"{k[0]} · {k[1]} · {k[2]}"
             check(label + " 数量", p["quantity"] if p else ZERO, q["quantity"] if q else ZERO)
             check(label + " 剩余成本", p["cost"] if p else ZERO, q["cost"] if q else ZERO)
+            check(label + " 人民币成本", p["cost_cny"] if p else ZERO, q["cost_cny"] if q else ZERO)
         for field, label in (("cash", "现金"), ("liabilities", "负债")):
             b = {p["currency"]: p["amount"] for p in before[field]}
             a = {p["currency"]: p["amount"] for p in after[field]}
@@ -242,10 +258,12 @@ def rebuild_history(db, account_id, payload, *, preview=False):
                 check(f"{curr} {label}", b.get(curr, ZERO), a.get(curr, ZERO))
         if before["pending"] != after["pending"]:
             differences.append({"item": "待确认 / 待到账款项", "before": "原起点款项", "after": "补录后的款项不同"})
+        check("累计盈亏", before.get("cumulative_profit"), after.get("cumulative_profit"))
         if not preview and differences and not payload.get("confirm_differences", False):
             raise ValueError("原起点的数量、成本或现金存在差异，请先试算核对并明确确认差异")
         checkpoint = {"effective_at": iso(old_at), "positions": original["positions"], "cash": original["cash"],
-                      "liabilities": original.get("liabilities", {}), "source": original.get("source", "原期初")}
+                      "liabilities": original.get("liabilities", {}), "source": original.get("source", "原期初"),
+                      "historical_profit_cny": original.get("historical_profit_cny"), "historical_profit_note": original.get("historical_profit_note", "")}
         old.data = {**old.data, "history_checkpoints": [*original.get("history_checkpoints", []), checkpoint]}
         return public({"checkpoint_at": iso(old_at), "new_start": iso(new_at), "differences": differences,
                        "current": calculate(db, account_id)["current"], "record_count": len(payload["records"])})
@@ -272,6 +290,8 @@ def save_trade(db, payload, record_id=None, commit=True):
     data["quantity"] = str(number(payload["quantity"], minimum=Decimal("0.000000000001")))
     data["price"] = str(number(payload["price"], minimum=ZERO))
     data["fees"] = str(number(payload.get("fees", 0), minimum=ZERO))
+    if payload.get("gross_amount") not in (None, ""):
+        data["gross_amount"] = str(number(payload["gross_amount"], minimum=ZERO))
     data["settlement"] = payload.get("settlement", "cash")
     if data["settlement"] not in {"cash", "pending"} or data["side"] == "BUY" and data["settlement"] == "pending":
         raise ValueError("待到账仅用于已确认赎回；申购确认请关联待确认款")
@@ -454,7 +474,7 @@ def aggregate_assets(positions):
         if not active:
             continue
         p = {**active[0], "account_id": "all", "account_positions": active}
-        for field in ("quantity", "cost", "cost_cny", "market_value", "market_value_cny", "floating", "realized", "realized_cny", "dividends", "dividends_cny", "position_weight"):
+        for field in ("quantity", "cost", "cost_cny", "market_value", "market_value_cny", "floating", "floating_cny", "realized", "realized_cny", "dividends", "dividends_cny", "position_weight"):
             rows = group if field in {"realized", "realized_cny"} else active
             p[field] = sum((r[field] for r in rows), ZERO) if all(r[field] is not None for r in rows) else None
         p["average_cost"] = p["cost"] / p["quantity"] if p["cost"] is not None else None

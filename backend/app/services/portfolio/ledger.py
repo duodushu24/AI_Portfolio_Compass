@@ -211,7 +211,7 @@ class Ledger:
             self.cash(account_id, curr, -amount - fee)
             self.cash(account_id, data["to_currency"], number(data["to_amount"]))
         elif kind == "subscription":
-            self.cash(account_id, curr, -amount)
+            self.cash(account_id, curr, -amount - fee)
             book["pending"][str(record_id)] = {"amount": amount, "currency": curr, "kind": kind, "code": data.get("code", "")}
         elif kind in {"settle", "cancel_subscription"}:
             pending = book["pending"].pop(str(data["pending_id"]), None)

@@ -7,6 +7,7 @@ export const portfolioApi = {
   overview: (accountId = "all", code = "", at = "", view = "chart") => request<Portfolio>(`/api/portfolio/overview?${new URLSearchParams({ account_id: accountId, view, ...(code ? { code } : {}), ...(at ? { at } : {}) })}`),
   opening: (accountId: string) => request<{ confirmed: boolean; opening: Opening; reconciliation: Reconciliation[] }>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/opening`),
   saveOpening: (accountId: string, data: unknown, correction: boolean) => request<Portfolio>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/opening?correction=${correction}`, write("PUT", data)),
+  previewOpening: (accountId: string, data: unknown, correction: boolean) => request<Portfolio>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/opening/preview?correction=${correction}`, write("POST", data)),
   saveTrade: (data: unknown, id?: number) => request<{ id: number }>(`/api/portfolio/trades${id ? `/${id}` : ""}`, write(id ? "PUT" : "POST", data)),
   previewHistory: (accountId: string, data: unknown) => request<HistoryPreview>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/history/preview`, write("POST", data)),
   saveHistory: (accountId: string, data: unknown) => request<HistoryPreview>(`/api/portfolio/accounts/${encodeURIComponent(accountId)}/history`, write("POST", data)),

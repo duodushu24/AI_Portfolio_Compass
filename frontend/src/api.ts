@@ -193,10 +193,13 @@ export type AccountSummary = {
 };
 
 export type ImportPreview = {
+  import_kind?: "opening";
+  opening_payload?: import("./features/portfolio/types").Opening;
   holding_completeness?: "partial" | "full";
   holding_market?: string;
   holding_observed_at?: string;
   confirm_average_cost?: boolean;
+  confirm_diluted_cost?: boolean;
   source_name: string;
   filename: string;
   import_hash: string;
@@ -600,6 +603,10 @@ function apiBase() {
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const base = apiBase();
+  // These POST endpoints only parse or roll back a trial. Treating them as writes
+  // refreshes the workbench and unmounts an in-progress opening correction.
+  const previewing = options?.method?.toUpperCase() === "POST" && /^\/api\/(?:import\/[^/]+\/preview|portfolio\/accounts\/[^/]+\/(?:opening\/preview|history\/preview))(?:\?|$)/.test(path);
+  if (previewing) return fetchJson<T>(base, path, options);
   const reading = !options?.method || options.method.toUpperCase() === "GET";
   if (reading) {
     const reusable = /^\/api\/(portfolio\/|data\/accounts\/[^/]+\/overview|accounts(?:\?|$)|dashboard(?:\?|$)|positions(?:\?|\/|$)|review(?:\?|\/trades\?|$)|profile$)/.test(path);
@@ -871,7 +878,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(preview),
     }),
-  downloadImportTemplate: (context: "position" | "deal" = "position") => downloadFile(`/api/import/excel/template?context=${context}`, `ai-portfolio-${context}-template.xlsx`),
+  downloadImportTemplate: (context: "position" | "deal" | "opening" = "position") => downloadFile(`/api/import/excel/template?context=${context}`, `ai-portfolio-${context}-template.xlsx`),
   manualSync: () => request<{ sync_id: string; status: string; message: string }>("/api/sync/manual", { method: "POST" }),
   generateDecisionCards: (consentExternalAi = false, model?: string, systemPrompt?: string) =>
     request<{ status: string; model?: string; prompt_hash?: string; generated_count: number; failed: Array<{ code: string; error: string }> }>("/api/decision-cards/generate-ai", {

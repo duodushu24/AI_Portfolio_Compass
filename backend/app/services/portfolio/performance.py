@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from .ledger import Ledger, ZERO, key, number
+from .profit import ProfitCarry
 
 
 def instant(value):
@@ -206,6 +207,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
     timeline.sort(key=lambda e: (instant(e[0]), e[1], e[2]))
     fx_history = FxHistory(timeline)
     ledger, prices, included, points = Ledger(), Prices(), set(), []
+    profits = ProfitCarry()
     units, base, net_flows, last_nav = ZERO, None, ZERO, None
     interval, valid, cumulative_issues = 0, True, set()
     missing_opening_at = None
@@ -227,6 +229,8 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
         # A backdated observation can repair earlier transactions, but no rate
         # whose actual time is later than this event may enter its calculation.
         prices.fx = fx_history.at(at, data.get("fx"))
+        if kind == "opening":
+            profits.open(account_id, data, prices.value(ledger, {account_id}, at, include_cycles=False))
         # A trade price is a dated observation; it also values the same asset in other accounts.
         if kind == "trade" and ledger.accounts[account_id].get("valuation_policy") != "explicit_only":
             prices.update({"prices": [{**{n: data[n] for n in ("code", "currency", "unit")},
@@ -257,6 +261,8 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
                 value = number(data["quantity"]) * number(quote["price"]) * rate if p and quote and rate is not None else None
                 delta = int(data["to_account_id"] in before_scope) - int(account_id in before_scope)
                 flow = value * delta if value is not None else None if delta else ZERO
+                profits.flow(account_id, -value if value is not None else None)
+                profits.flow(data["to_account_id"], value)
             rate_item = prices.fx.get(data.get("currency", "CNY"))
             ledger.event(account_id, kind, data, f"event:{record_id}", iso(at), prices.rate(data.get("currency", "CNY")), rate_item)
             if kind in {"deposit", "withdrawal", "transfer"}:
@@ -265,6 +271,10 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
                     factor += int(data["to_account_id"] in before_scope)
                 rate = prices.rate(data["currency"])
                 flow = number(data["amount"]) * factor * rate if rate is not None else None if factor else ZERO
+                amount = number(data["amount"]) * rate if rate is not None else None
+                profits.flow(account_id, amount if kind == "deposit" else -amount if amount is not None else None)
+                if kind == "transfer":
+                    profits.flow(data["to_account_id"], amount)
         selected = set(included) if scope == "all" else {scope} & set(ledger.accounts)
         result = prices.value(ledger, selected, at, include_cycles=not compact)
         assets = result["total_assets"]
@@ -348,6 +358,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
         if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected) and not baseline_active:
             # Missing valuations at funding boundaries cannot be repaired with later quotes.
             result.update(nav=None, cumulative_return=None, profit=None)
+        result.update(profits.summary(result, selected))
         points.append(deepcopy(result))
     current = deepcopy(points[-1]) if points else None
     if current and compact:
@@ -364,4 +375,5 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
                 nav = current["total_assets"] / units if units > ZERO else last_nav
                 current.update(nav=nav, cumulative_return=nav - 1 if nav is not None else None,
                                profit=current["total_assets"] - base - net_flows)
+            current.update(profits.summary(current, selected))
     return {"points": points, "current": current, "ledger": ledger, "prices": prices, "as_of": iso(last_at) if last_at else None}

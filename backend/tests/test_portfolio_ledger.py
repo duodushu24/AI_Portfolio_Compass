@@ -215,8 +215,8 @@ def test_backdated_correction_code_time_fees_replay_and_atomic_oversell(records)
         trade(db, "SELL", "10", "12", day=3)
         s.save_trade(db, {**asset(), "account_id": "test-a", "effective_at": when(2), "side": "BUY", "quantity": "30", "price": "9", "fees": "3"}, b)
         p = current(db)
-        assert p["positions"][0]["quantity"] == 20 and p["positions"][0]["average_cost"] == D("9.1")
-        assert p["positions"][0]["realized"] == 29 and p["cash_value"] == 847
+        assert p["positions"][0]["quantity"] == 20 and p["positions"][0]["average_cost"] == D("7.65")
+        assert p["positions"][0]["realized"] == 0 and p["cash_value"] == 847
         with pytest.raises(ValueError):
             trade(db, "SELL", "21", "20", day=4)
         assert len(list(db.scalars(select(Deal)))) == 2
@@ -483,7 +483,7 @@ def test_reconciliation_compares_snapshot_time_not_current_exit(records):
         db.commit()
         diff = s.reconcile(db, "test-a")[0]
         assert diff["status"] == "mismatch" and diff["ledger_quantity"] == "10"
-        assert diff["reason"] == "同一时点的平均成本不同"
+        assert diff["reason"] == "同一时点的摊薄成本不同"
 
 
 def test_reconciliation_older_source_is_uncovered_not_missing_trade(records):
