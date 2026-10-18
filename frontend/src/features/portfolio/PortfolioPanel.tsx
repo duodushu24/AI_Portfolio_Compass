@@ -75,7 +75,10 @@ export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = 
       { title: "币种", dataIndex: "currency", width: 65 },
       { title: "数量", align: "right", width: 85, render: (_, a: Asset) => <Tooltip content={`数量单位：${unitLabel(a.unit)}`}><span>{money(a.quantity, 6)}</span></Tooltip> },
       { title: "摊薄成本价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={`本阶段买入支出减卖出净收入、净分红，再除以剩余数量。单位价格，${priceUnit(a.currency, a.unit)}`}><span>{money(a.average_cost, 4)}</span></Tooltip> },
-      { title: "市值价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={a.quote ? `${quoteKindLabel(a.quote.price_kind)} · ${a.quote.source} · ${timeLabel(a.quote.at)} · ${priceUnit(a.currency, a.unit)}` : "缺少报价"}><span>{money(a.price, 4)}<sup className="portfolio-quote-mark">{!a.quote ? "缺价" : a.quote.price_kind === "estimate" ? "估" : new Date(a.quote.at).toDateString() !== new Date(asOf || Date.now()).toDateString() ? "旧" : "·"}</sup></span></Tooltip> },
+      { title: "市值价", align: "right", width: 95, render: (_, a: Asset) => {
+        const mark = !a.quote ? "缺价" : a.quote.price_kind === "estimate" ? "估" : new Date(a.quote.at).toDateString() === new Date(asOf || Date.now()).toDateString() ? "·" : null;
+        return <Tooltip content={a.quote ? `${quoteKindLabel(a.quote.price_kind)} · ${a.quote.source} · ${timeLabel(a.quote.at)} · ${priceUnit(a.currency, a.unit)}` : "缺少报价"}><span>{money(a.price, 4)}{mark && <sup className="portfolio-quote-mark">{mark}</sup>}</span></Tooltip>;
+      } },
       { title: "持仓盈亏", align: "right", width: 105, render: (_, a: Asset) => signed(a.floating) },
       { title: "持仓收益率", align: "right", width: 100, render: (_, a: Asset) => <span className={a.holding_return == null ? "" : Number(a.holding_return) >= 0 ? "gain" : "loss"}>{percent(a.holding_return)}</span> },
       { title: "本阶段分红", align: "right", width: 110, render: (_, a: Asset) => signed(a.dividends) },
