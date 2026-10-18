@@ -5,7 +5,7 @@ id: C-011
 title: "银行黄金类型、克单位与手工估值闭环"
 status: closed
 created: "2026-10-16"
-updated: "2026-10-16"
+updated: "2026-10-18"
 issues: ["P-006"]
 commits: ["b55413ec8637faae2d0f00bd2df2d84046eddbe5"]
 evidence: ["backend/app/database.py", "backend/app/models.py", "backend/app/schemas.py", "backend/app/main.py", "backend/app/services/imports.py", "backend/app/services/sync.py", "backend/app/services/portfolio/ledger.py", "backend/app/services/portfolio/service.py", "backend/app/services/profile_workflows.py", "backend/app/services/ai_engine.py", "backend/app/services/ai_decision_cards.py", "backend/tests/test_portfolio_ledger.py", "frontend/src/features/portfolio/assets.ts", "frontend/src/features/portfolio/PortfolioWorkbench.tsx", "frontend/src/features/portfolio/PortfolioPanel.tsx", "frontend/src/features/portfolioViews.tsx", "frontend/src/api.ts"]
@@ -16,6 +16,8 @@ closed_result: "支持人民币银行黄金按克记账和独立产品手工报�
 # C-011：银行黄金类型、克单位与手工估值闭环
 
 关联 [P-006](../issues/P-006-bank-gold.md)，扩展 P-005 账目能力。
+
+后续状态（2026-10-18 记录核对）：本记录的平均成本及未重启仅代表实施当时；当前黄金复用 P-007/C-017 的统一摊薄成本，后续其他批次已重载服务，但黄金专用实际验收仍由 P-006 跟踪。
 
 ## 实际变更
 

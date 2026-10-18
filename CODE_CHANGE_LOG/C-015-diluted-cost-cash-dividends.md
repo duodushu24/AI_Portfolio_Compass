@@ -5,7 +5,7 @@ id: C-015
 title: "唯一摊薄成本与到账分红阶段结算"
 status: closed
 created: "2026-10-17"
-updated: "2026-10-17"
+updated: "2026-10-18"
 issues: ["P-007"]
 commits: ["e4afef97400ed28caa78ed9a72fd5f8ac0f1b795"]
 evidence: ["backend/app/services/portfolio/ledger.py", "backend/app/services/portfolio/performance.py", "backend/app/services/portfolio/service.py", "backend/app/services/portfolio/gf_import.py", "backend/tests/test_diluted_cost.py", "backend/tests/test_gf_import.py", "backend/tests/test_portfolio_ledger.py", "frontend/src/features/portfolio/PortfolioPanel.tsx", "frontend/src/features/portfolio/PortfolioWorkbench.tsx", "frontend/src/features/portfolio/ClosedPositions.tsx", "frontend/src/features/portfolio/types.ts", "issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md"]
@@ -16,6 +16,8 @@ closed_result: "全账本使用摊薄净投入，部分卖出不单列收益，�
 # C-015：唯一摊薄成本与到账分红阶段结算
 
 关联 [P-007](../issues/P-007-diluted-cost-dividends.md) 与更新后的唯一方案 [S-001](../issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md)。用户明确排除精确每日曲线、除息时间差、应收分红及价格归因，并授权按简化范围修改系统。
+
+后续替代（2026-10-18）：本记录的“分红不改成本”已被用户新要求及 C-017 替代。当前分红视同到账、增加现金并扣减阶段净成本，持仓盈亏含分红，清仓只结算一次；下文保留本批实际实施与验证历史，不作为现行分红公式。
 
 ## 实际变更
 

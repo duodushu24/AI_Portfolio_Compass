@@ -5,7 +5,7 @@ id: C-013
 title: "广发联合明细导入与明确报价限制"
 status: closed
 created: "2026-10-17"
-updated: "2026-10-17"
+updated: "2026-10-18"
 issues: ["P-005"]
 commits: ["adceb4436b347e33116b8a968c9b891381b0703d"]
 evidence: ["backend/app/services/portfolio/gf_import.py", "backend/app/services/portfolio/ledger.py", "backend/app/services/portfolio/performance.py", "backend/app/services/portfolio/service.py", "scripts/import_gf_statement.py", "backend/tests/test_gf_import.py", "frontend/src/features/portfolio/PortfolioPanel.tsx", "frontend/src/features/portfolio/PortfolioWorkbench.tsx", "issues/solutions/P-005/S-002-account-ledger-performance.md"]
@@ -16,6 +16,8 @@ closed_result: "联合明细重建指定账户，保留来源及恢复副本，�
 # C-013：广发联合明细导入与明确报价限制
 
 关联 [P-005](../issues/P-005-portfolio-return-history.md) 与唯一方案 [S-002](../issues/solutions/P-005/S-002-account-ledger-performance.md)。用户确认联合导入方案，并明确不补推算历史估值，随后授权处理数据并写入系统。
+
+后续状态（2026-10-18 记录核对）：本批不推算历史估值的事实保留；后续 C-014 放宽当前真实报价展示，C-018/C-019 已完成另行授权的收盘基准/周度估值和交易标记，不能再将本记录的尚无曲线当作当前状态。成本/分红与汇率分别以 C-017、C-021 为准。
 
 ## 实际修改
 

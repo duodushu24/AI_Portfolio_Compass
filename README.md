@@ -118,7 +118,7 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 - 本地 Web 工作台：React + Vite + FastAPI。
 - 多账户资产总览：把 A 股基金、A 股股票、美股、港股等分散资产放进统一视图。
 - 多账户视角：支持账户选择、账户数据概览、跨账户合并分析和本地数据管理。
-- 完整账户记账与收益：在“账户与数据”确认期初后，记录买卖、资金进出/转账或更新市值，自动维护平均成本、现金和已实现盈亏；“资产组合”展示包含现金的整体净值收益率与盈亏金额曲线，账户筛选只影响持仓表，支持不规则时点、历史纠错及已清仓标的详情。
+- 完整账户记账与收益：在“账户与数据”确认期初后，记录买卖、资金进出/转账、分红或更新市值，自动维护唯一摊薄成本、现金和阶段清仓收益；“资产组合”展示包含现金的整体净值收益率与盈亏金额曲线，账户筛选只影响持仓表，支持不规则时点、历史纠错及已清仓标的详情。
 - 持仓与清仓分开查询：持仓表分别展示摊薄成本价、市值价、含分红的持仓盈亏及本阶段分红，单位收进详情；“账户与数据 → 数据管理 → 已清仓查询”按完整持有阶段查看历史退出，支持账户、关键词、清仓日期筛选及阶段成交明细。账户与数据保留分账户记账，不重复展示账户收益曲线。独立“记录分红”入口按记账时间视同到账，同步增加现金并抵扣成本，数量和市值价不变。
 - 银行黄金手工记账：资产类型选择“贵金属（银行黄金）”，以克、元／克记录人民币积存金或账户黄金；不同银行产品分别维护，可按银行赎回／回购价或银行展示市值更新估值，并纳入账户收益。自动银行行情、实物提取和保证金业务暂未支持。
 - 持仓诊断：仓位类型识别、组合集中度、盈亏状态、风险提示。
@@ -134,7 +134,11 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 - 数据源治理：行情、新闻、汇率、Futu OpenD、Tushare、Alpaca、FMP、Polygon、Alpha Vantage 等可配置 provider。
 - 数据新鲜度矩阵：持仓、成交、行情、资讯、汇率、画像和决策卡都有过期处理。
 
-收益统计从用户确认的期初市值和各币种现金开始。买入费用进入平均成本，部分卖出均价不摊薄，清仓利润保留；入出金通过净值份额调整，组合内转账不作为新增盈利。手工市价、基金正式净值或标的市值更新即形成观察点，并标注实际报价和汇率时间；沿用旧价和资金边界估算可查，缺失的期初估值或人民币取得成本不补造。建档后持仓导入作为核对来源，不能覆盖账目；规范成交导入须填写币种、费用和资产/数量单位，成交号防重。旧快照与旧收益观察可只读查看。实施与隔离验证见 [C-008](CODE_CHANGE_LOG/C-008-account-ledger-performance.md)，当前设计为 [S-002](issues/solutions/P-005/S-002-account-ledger-performance.md)；真实账户期初与用户操作验收仍需人工确认，稳定行情和 K 线未在本批次修复。
+成本计算唯一采用摊薄法：本持有阶段净成本＝买入清算支出－卖出净收入－净现金分红，除以剩余数量得到摊薄成本价；部分卖出和分红均会改变成本价，持仓盈亏已含二者，数量归零才结算清仓收益，再买入重新开阶段。分红按记账时间视同到账，不处理除息到到账的时间差，不自动调整市值价；清仓收益率以该阶段累计买入支出为分母，非正或未知分母不输出比例。详见 [P-007/S-001](issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md) 和 [C-017](CODE_CHANGE_LOG/C-017-manual-dividend-cost.md)。
+
+组合收益从确认的期初市值及现金，或单独设置的完整估值基准开始；改收益基准不改历史账目与成本。盈亏金额＝当前总资产－基准总资产－期间净外部入金，收益率采用净值份额法；不把清仓利润或分红再加一次。每周等不规则观察均可，曲线连接已保存估值，期间买卖有独立交易标记，不推算缺价交易日收益。历史汇率优先本笔有效填写，否则沿用实际时间不晚于事件的最近保存记录，补录/纠错/作废后重算，禁止未来汇率倒填；来源、时间及沿用/估算信息可查。未知历史人民币取得成本不以当前汇率补造。相关实现见 [C-018](CODE_CHANGE_LOG/C-018-weekly-close-baseline.md)、[C-019](CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md)、[C-021](CODE_CHANGE_LOG/C-021-historical-fx-selection.md)。
+
+建档后持仓导入作为核对来源，不能覆盖账目；规范成交导入须填写币种、费用和资产/数量单位，成交号防重。旧快照与旧收益观察可只读查看。基础设计见 [S-002](issues/solutions/P-005/S-002-account-ledger-performance.md)，最新状态及有限验收项以 [current_state.md](current_state.md) 为准；稳定行情和 K 线不在这些批次修复范围内，不承诺精确每日收益曲线。
 
 银行黄金 Excel 持仓及成交导入使用 `asset_type=precious_metal`、`unit=gram`、`market=CN`、`currency=CNY`，产品代码用稳定的 `CN.GOLD.产品标识`（不同银行产品分别命名），填写银行及产品名称；从界面建立过的产品应复用其代码，避免重复持仓。数量填克数，价格填元／克；成交表新增名称列，已有产品可复用账目或来源名称。升级后首次启动后端会给旧持仓表补充单位列，既有记录按原类型解释，不自动转换旧黄金记录。
 
@@ -299,13 +303,13 @@ Futu 账户不需要在“账户管理”里手动创建。只有 Excel、PDF、
 - 导入/导出的表格、PDF、截图、二维码
 - Python、Node、测试和构建缓存
 
-更多细节见 [docs/SECURITY.md](docs/SECURITY.md)。
+更多细节见 [SECURITY.md](SECURITY.md)。
 
 ## 文档
 
-- [本地启动和数据源说明](docs/README.md)
+- [本地启动和数据源说明](#快速开始)
 - [API Contract](docs/API.md)
-- [安全边界](docs/SECURITY.md)
+- [安全边界](SECURITY.md)
 
 ## 测试
 
@@ -472,6 +476,9 @@ Safety is a first-class design constraint:
 - Local web workbench built with React, Vite, and FastAPI.
 - Multi-account asset overview for scattered A-share funds, A-share stocks, US stocks, Hong Kong stocks, and manually imported assets.
 - Account selection, account overview, cross-account analysis, and local data management.
+- Account ledger with one diluted-cost method: net purchases less net sales and cash dividends determine the remaining cost. Partial sales and dividends stay in holding PnL until the position closes; a repurchase starts a new phase. Dividends are treated as received when recorded.
+- Portfolio performance includes cash and external flows, with an optional complete valuation baseline, irregular valuation points, and separate trade markers. Historical FX uses an explicit valid rate or the most recent saved rate at or before the event; missing historical acquisition costs are not invented. See the Chinese capability notes and project state for validation limits.
+- Manual RMB bank-gold accounting in grams, with independent product quotes and no automatic bank-price feed.
 - Position diagnosis with position layers, concentration checks, PnL state, and risk notes.
 - Decision cards with recommendation, confidence, reasons, risks, key prices, and data status.
 - Position detail pages with holdings, news, K-line summaries, AI analysis, and layer correction.
@@ -595,13 +602,13 @@ The repository ignores:
 - Imported/exported spreadsheets, PDFs, screenshots, and QR codes
 - Python, Node, test, and build caches
 
-See [docs/SECURITY.md](docs/SECURITY.md) for details.
+See [SECURITY.md](SECURITY.md) for details.
 
 ## Documentation
 
-- [Local setup and data providers](docs/README.md)
+- [Local setup and data providers](#quick-start)
 - [API contract](docs/API.md)
-- [Security boundary](docs/SECURITY.md)
+- [Security boundary](SECURITY.md)
 
 ## Tests
 

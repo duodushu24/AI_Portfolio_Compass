@@ -8,8 +8,8 @@ created: "2026-10-17"
 updated: "2026-10-18"
 changes: ["C-015", "C-017"]
 related: ["P-005", "P-006"]
-evidence: ["issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md", "CODE_CHANGE_LOG/C-015-diluted-cost-cash-dividends.md", "backend/app/services/portfolio/ledger.py", "backend/tests/test_diluted_cost.py"]
-next: "验收手工分红的现金与成本同步变化、纠错和作废；新分红使用独立入口录入"
+evidence: ["issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md", "CODE_CHANGE_LOG/C-015-diluted-cost-cash-dividends.md", "CODE_CHANGE_LOG/C-017-manual-dividend-cost.md", "backend/tests/test_gf_import.py", "backend/app/services/portfolio/ledger.py", "backend/tests/test_diluted_cost.py"]
+next: "验收手工分红的现金与成本同步、清仓重置及纠错作废；核对并更新券商导入旧成本断言"
 priority: high
 tags: ["cost", "dividend", "returns", "ledger"]
 ---
@@ -20,7 +20,9 @@ tags: ["cost", "dividend", "returns", "ledger"]
 
 2026-10-18 用户确认以“分红视同到账、同步增加现金并扣减成本”替代此前“分红不改成本”，授权独立手工入口；不考虑后续账单导入去重，不改收益统计起点。[C-017](../CODE_CHANGE_LOG/C-017-manual-dividend-cost.md) 完成公式、入口、预览及持仓盈亏文案调整；14 项相关测试、构建、虚构账户浏览器及正式重载核对通过。既有现金、资产与清仓结果一致；未自动补录新的分红。
 
-当前唯一方案为更新后的 [S-001](solutions/P-007/S-001-diluted-cost-dividend-accounting.md)。C-015 保留历史事实，其“分红不改成本”由本批替代。用户实际使用待验收。
+当前唯一方案为更新后的 [S-001](solutions/P-007/S-001-diluted-cost-dividend-accounting.md)。C-015 保留历史事实，其“分红不改成本”由本批替代。用户实际使用待验收。2026-10-18 文档核对确认源码仍执行分红扣减成本与归零结算；本轮未重新运行测试或操作正式账本。
+
+**关闭判断：保持 active。** 已有隔离/正式核对及浏览器依据，但尚缺最后手工分红/纠错的用户验收；另有已记录的旧测试缺口：`backend/tests/test_gf_import.py::test_joint_import_cash_cost_scope_and_idempotency` 仍断言成本为 `41`，其虚构样本包含净分红 `5`，按现行规则应核对为 `36`。C-018 已复现旧断言失败；本轮只核对代码未修复，不能声称全部回归通过。实际修复需按任务授权处理，影响评估纳入 P-009。
 
 ## 已确认目标与边界
 
