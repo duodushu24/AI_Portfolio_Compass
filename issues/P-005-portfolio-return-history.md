@@ -5,11 +5,11 @@ id: P-005
 title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
-updated: "2026-10-17"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014"]
+updated: "2026-10-18"
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018"]
 related: ["P-001", "P-002", "P-007"]
-evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md"]
-next: "验收联合明细导入后的账目与清仓查询；缺失历史估值不推算"
+evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md"]
+next: "验收收盘基准及周度收益曲线；后续按实际观察更新，估算汇率与真实报价分别标记"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
 ---
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-18 用户授权按已确认收盘基准和选定周度日期录入估值，补充一项用户确认价格，并允许按确认端点线性估算汇率。[C-018](../CODE_CHANGE_LOG/C-018-weekly-close-baseline.md) 完成独立收益基准、跨市场收盘观察与估算标记；隔离试录、正式事务写入、服务重载、读接口及浏览器检查通过。原期初、买卖、现金、成本、分红和清仓记录均保留，只新增估值事件；私有价格清单、恢复副本和核对结果在已忽略运行目录。已有最新报价按原日期保留，不补造未提供的最新美股收盘价；不恢复每日曲线。当前分红抵扣成本口径依据 P-007/C-017，不沿用下方历史 C-015 的旧分红口径。等待用户页面验收。
 
 2026-10-17 成本与分红变更由 [P-007](P-007-diluted-cost-dividends.md) / [C-015](../CODE_CHANGE_LOG/C-015-diluted-cost-cash-dividends.md) 按用户最后确认范围完成：只用摊薄成本，部分卖出不单列清仓收益，现金分红不改成本且进入原阶段最终清仓收益。相关隔离检查与正式系统读接口核对通过；原现金/数量及相同报价下总资产不变。应收分红、除息归因和精确每日曲线已明确排除，不列为后续待办；用户页面验收由 P-007 跟踪。
 
