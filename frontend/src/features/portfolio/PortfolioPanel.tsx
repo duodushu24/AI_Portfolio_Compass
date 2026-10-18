@@ -8,10 +8,13 @@ import "./portfolio.css";
 export const numeric = (v: string | number | null | undefined) => v == null ? "—" : Number(v).toLocaleString("zh-CN", { maximumFractionDigits: 4 });
 export const percent = (v: string | null | undefined) => v == null ? "—" : `${(Number(v) * 100).toFixed(2)}%`;
 export const timeLabel = (v: string) => new Date(v).toLocaleString("zh-CN", { hour12: false });
+const observationLabel = (p: ChartPoint) => p.valuation_date ? `${p.valuation_date} 收盘` : timeLabel(p.observed_at);
 export const accountLabel = (id: string, names: Record<string, string> = {}) => names[id] || "未命名账户";
 export const labels: Record<string, string> = { opening: "建档", include: "纳入组合", exclude: "移出组合", trade: "买卖", valuation: "更新市值", deposit: "入金", withdrawal: "出金", transfer: "账户转账", dividend: "分红", interest: "利息", fee: "费用", fx: "换汇", subscription: "待确认申购", settle: "赎回到账", cancel_subscription: "申购撤回", split: "拆分", share_credit: "红股入账", position_transfer: "转托管" };
 
-function Chart({ points, metric, onSelect, assetCode = "" }: { points: ChartPoint[]; metric: string; onSelect: (p: ChartPoint) => void; assetCode?: string }) {
+function Chart({ points: records, metric, onSelect, assetCode = "" }: { points: ChartPoint[]; metric: string; onSelect: (p: ChartPoint) => void; assetCode?: string }) {
+  const closingObservations = !assetCode && Boolean(records[0]?.valuation_date);
+  const points = closingObservations ? records.filter(p => p.event_type === "valuation" && (p.valuation_date || p.total_assets != null)) : records;
   if (!points.length) return <Empty description="确认期初后，买卖、资金和市值更新会自动形成收益记录。" />;
   if (points.every(p => p.cumulative_return == null && p.profit == null)) return <Empty description="历史估值未补齐，暂不展示收益曲线。交易和资金记录已保留。" />;
   const value = (p: ChartPoint) => {
@@ -32,9 +35,9 @@ function Chart({ points, metric, onSelect, assetCode = "" }: { points: ChartPoin
   return <div className="portfolio-chart"><svg viewBox="0 0 900 290" role="img" aria-label={assetCode ? "标的持仓收益率曲线" : "整体组合收益曲线"}>
     {[0, 1, 2, 3, 4].map(i => { const v = low - pad + (high - low + 2 * pad) * i / 4; return <g key={i}><line x1="75" x2="870" y1={y(v)} y2={y(v)} stroke="#d9dfe7" /><text x="65" y={y(v) + 4} textAnchor="end">{v.toFixed(1)}{assetCode || metric === "return" ? "%" : ""}</text></g>; })}
     <path d={path} fill="none" stroke="#165dff" strokeWidth="2.5" />
-    {points.map((p, i) => <circle key={i} cx={x(times[i])} cy={values[i] == null ? 250 : y(values[i]!)} r="5" fill={p.event_type === "trade" ? "#ff7d00" : values[i] == null ? "#86909c" : "#165dff"} tabIndex={0} role="button" aria-label={`查看收益记录 ${timeLabel(p.observed_at)} ${labels[p.event_type]}`} onClick={() => onSelect(p)} onKeyDown={e => { if (e.key === "Enter") onSelect(p); }}><title>{timeLabel(p.observed_at)} · {labels[p.event_type]} · {values[i] == null ? "资料未齐/无持仓" : values[i]?.toFixed(2)}</title></circle>)}
-    <text x="75" y="280">{timeLabel(points[0].observed_at)}</text><text x="870" y="280" textAnchor="end">{timeLabel(points[points.length - 1].observed_at)}</text>
-  </svg><small>橙色为实际买卖点，可点击查看数量、成本和利润变化。仅连接已保存时点；不同连续区间和缺失资料处断开。</small></div>;
+    {points.map((p, i) => <circle key={i} cx={x(times[i])} cy={values[i] == null ? 250 : y(values[i]!)} r="5" fill={p.event_type === "trade" ? "#ff7d00" : values[i] == null ? "#86909c" : "#165dff"} tabIndex={0} role="button" aria-label={`查看收益记录 ${observationLabel(p)} ${labels[p.event_type]}`} onClick={() => onSelect(p)} onKeyDown={e => { if (e.key === "Enter") onSelect(p); }}><title>{observationLabel(p)} · {labels[p.event_type]} · {values[i] == null ? "资料未齐/无持仓" : values[i]?.toFixed(2)}</title></circle>)}
+    <text x="75" y="280">{observationLabel(points[0])}</text><text x="870" y="280" textAnchor="end">{observationLabel(points[points.length - 1])}</text>
+  </svg><small>{closingObservations ? "按已记录的收盘估值连接，不生成每日收益。期间买卖、分红和现金变化已按账本计入；点击可查看估值依据。" : "橙色为实际买卖点，可点击查看数量、成本和利润变化。仅连接已保存时点；不同连续区间和缺失资料处断开。"}</small></div>;
 }
 
 export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = {}, asOf }: { assets: Asset[]; onOpen?: (code: string) => void; maskAssets?: boolean; accountNames?: Record<string, string>; asOf?: string }) {
@@ -83,7 +86,7 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
     {error && <Alert type="error" content={error} />}
     {pointLoading && <small>正在读取当时账目…</small>}
     {!code && current && <div className="portfolio-metrics"><div>组合总资产<strong>{money(current.total_assets)} CNY</strong></div><div>累计组合收益率<strong>{percent(current.cumulative_return)}</strong></div><div>累计组合盈亏<strong>{money(current.profit)} CNY</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}
-    {!code && current && <div className="portfolio-profit-basis"><p>组合盈亏从期初市值和现金开始统计；持仓盈亏已包含当前阶段的部分卖出盈亏和分红，不能再额外加分红；清仓收益在已清仓查询中展示，包含该阶段已收分红。</p><details><summary>查看组合盈亏计算依据</summary><p>收益起点：{beginning ? timeLabel(beginning.observed_at) : "期初估值待补齐"} · 期初总资产 {money(current.opening_assets)} CNY · 当前总资产 {money(current.total_assets)} CNY · 净外部入金 {money(current.net_flows)} CNY</p><p>组合盈亏＝当前总资产－期初总资产－期间净外部入金。买卖产生的现金已计入总资产，不另加一遍卖出利润。</p></details></div>}
+    {!code && current && <div className="portfolio-profit-basis"><p>组合盈亏从期初市值和现金开始统计；持仓盈亏已包含当前阶段的部分卖出盈亏和分红，不能再额外加分红；清仓收益在已清仓查询中展示，包含该阶段已收分红。</p><details><summary>查看组合盈亏计算依据</summary><p>收益起点：{beginning ? observationLabel(beginning) : "期初估值待补齐"} · 期初总资产 {money(current.opening_assets)} CNY · 当前总资产 {money(current.total_assets)} CNY · 净外部入金 {money(current.net_flows)} CNY</p><p>组合盈亏＝当前总资产－期初总资产－期间净外部入金。买卖产生的现金已计入总资产，不另加一遍卖出利润。</p></details></div>}
     {current && (current.issues.length > 0 || current.performance_issues.length > 0) && <Alert type="warning" content={<details><summary>{current.quality === "missing" ? "资料缺失，完整资产及收益不可用" : "部分报价沿用旧值或使用估算；查看依据"}</summary>{[...current.issues, ...current.performance_issues].map(i => <p key={i}>{i}</p>)}</details>} />}
     {current?.ended && <Alert type="info" content="本连续区间已结束，保留最后有效收益；重新入金会开始新连续区间。" />}
     <Chart points={data?.points ?? []} metric={metric} assetCode={code} onSelect={selectPoint} />
@@ -98,7 +101,7 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
     ]} /><small>清仓收益率＝该持有阶段已实现盈亏合计 ÷ 卖出结转成本合计，包含分批卖出；不是年化收益。未知或零成本不计算收益率。</small></>}
     {code && <Table rowKey={r => `${r.category}:${r.id}`} data={data?.records ?? []} pagination={{ pageSize: 8 }} columns={[{ title: "时间", dataIndex: "effective_at", render: timeLabel }, { title: "事项", render: (_, r) => `${accountName(r.account_id)} · ${labels[r.kind]}${r.is_void ? "（已作废）" : ""}` }, { title: "数量 / 价格 / 费用", render: (_, r) => maskAssets ? "••••" : `${r.data.side === "BUY" ? "买入" : r.data.side === "SELL" ? "卖出" : ""} ${r.data.quantity ?? ""} ${r.data.quantity != null ? unitLabel(String(r.data.unit || assetUnit(String(r.data.asset_type || "stock")))) : ""} / ${r.data.price ?? ""} ${r.data.price != null ? priceUnit(String(r.data.currency), String(r.data.unit || assetUnit(String(r.data.asset_type || "stock")))) : ""} / ${r.data.fees ?? ""}` }]} />}
     {!code && <p className="metadata-note">未知历史人民币成本不以当前汇率补算。报价沿用情况与资金边界估算可查看每个点。</p>}
-    {selected && <Drawer title={`${labels[selected.event_type]} · ${timeLabel(selected.observed_at)}`} visible width={1000} footer={null} onCancel={() => setSelected(null)}><div className="stack">
+    {selected && <Drawer title={`${labels[selected.event_type]} · ${observationLabel(selected)}`} visible width={1000} footer={null} onCancel={() => setSelected(null)}><div className="stack">
       <p>总资产 {money(selected.total_assets)} CNY · 净值 {numeric(selected.nav)} · 份额 {money(selected.units)} · 收益率 {percent(selected.cumulative_return)} · 累计组合盈亏 {money(selected.profit)} CNY</p>
       <Tag color={selected.quality === "complete" ? "green" : "orange"}>{selected.quality === "complete" ? "当时报价完整" : "估算 / 资料缺失"}</Tag>
       {selected.changes && <p>数量 {money(selected.changes.before_quantity)} → {money(selected.changes.after_quantity)}；剩余成本 {money(selected.changes.before_cost)} → {money(selected.changes.after_cost)}；本次已实现盈亏 {money(selected.changes.realized)}（原币）</p>}

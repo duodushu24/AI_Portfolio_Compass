@@ -37,6 +37,8 @@ class Prices:
     def __init__(self):
         self.prices = {}
         self.real_prices = {}
+        self.observed_at = {}
+        self.close_dates = {}
         self.fx = {"CNY": {"rate": "1", "at": None, "source": "本币"}}
 
     def update(self, data, at):
@@ -52,6 +54,8 @@ class Prices:
                 previous_real = self.real_prices.get(k)
                 if not previous_real or instant(item["at"]) >= instant(previous_real["at"]):
                     self.real_prices[k] = deepcopy(item)
+                    self.observed_at[k] = at
+                    self.close_dates[k] = data.get("valuation_date")
         for curr, item in data.get("fx", {}).items():
             previous = self.fx.get(curr)
             if curr != "CNY" and (not previous or instant(item["at"]) >= instant(previous["at"])):
@@ -74,6 +78,8 @@ class Prices:
                 return None
             if curr != "CNY" and instant(fx["at"]) < at:
                 issues.append(f"{curr}/CNY 沿用 {fx['at']} 汇率")
+            if fx.get("is_estimate"):
+                issues.append(f"{curr}/CNY 使用估算汇率：{fx['source']}")
             return amount * number(fx["rate"])
 
         for account_id in sorted(accounts):
@@ -82,7 +88,8 @@ class Prices:
                 quote = self.prices.get(k)
                 if ledger.accounts[account_id].get("valuation_policy") == "explicit_only":
                     quote = self.real_prices.get(k)
-                    if quote and (instant(quote["at"]) > at or not latest and instant(quote["at"]) != at):
+                    same_batch = self.observed_at.get(k) == at and self.close_dates.get(k)
+                    if quote and (instant(quote["at"]) > at or not latest and instant(quote["at"]) != at and not same_batch):
                         quote = None
                 q, cost = p["quantity"], p["cost"]
                 price = number(quote["price"]) if quote else None
@@ -91,7 +98,8 @@ class Prices:
                 cny = ZERO if not q else convert(p["currency"], mv) if mv is not None else None
                 if q and quote is None:
                     issues.append(f"{account_id}/{p['code']} 缺少价格")
-                if q and quote and instant(quote["at"]) < at:
+                same_close = self.observed_at.get(k) == at and self.close_dates.get(k) and quote == self.real_prices.get(k)
+                if q and quote and instant(quote["at"]) < at and not same_close:
                     issues.append(f"{p['code']} 沿用 {quote['at']} 报价")
                 if q and quote and quote.get("price_kind") == "estimate":
                     issues.append(f"{p['code']} 使用估算价格/净值")
@@ -170,6 +178,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
     interval, valid, cumulative_issues = 0, True, set()
     missing_opening_at = None
     last_at = None
+    baseline_active = False
     for timestamp, _, _, kind, account_id, data, record_id in timeline:
         at = instant(timestamp)
         if until and at > instant(until):
@@ -243,6 +252,15 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
         if not affects:
             continue
         estimated_flow = flow not in (None, ZERO) and before["quality"] != "complete" and base is not None
+        is_baseline = scope == "all" and kind == "valuation" and data.get("performance_baseline") == "all"
+        if is_baseline:
+            if assets is None or assets <= ZERO:
+                raise ValueError("收益基准需要全部纳入账户的完整报价、汇率及正净资产")
+            base, units, net_flows, last_nav = assets, assets, ZERO, Decimal(1)
+            interval, valid, missing_opening_at = 1, True, None
+            baseline_active = True
+            cumulative_issues.clear()
+            points.clear()
         if base is None and assets is None and missing_opening_at is None:
             missing_opening_at = at
         if base is None and assets is not None and assets > ZERO and (missing_opening_at is None or at == missing_opening_at):
@@ -251,7 +269,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
             valid = True
             if missing_opening_at == at:
                 cumulative_issues.clear()
-        elif base is not None:
+        elif base is not None and not is_baseline:
             if flow is None or before_assets is None or assets is None:
                 if flow != ZERO:
                     valid = False
@@ -279,18 +297,21 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
             cumulative_issues.add("期初完整估值缺失；请补录期初时点报价/汇率或纠正期初，后续市值不能替代收益起点")
         if estimated_flow:
             cumulative_issues.add(f"{iso(at)} 资金流使用沿用报价/汇率估值，补录当时报价可重算")
+        if baseline_active and any(fx.get("is_estimate") for fx in prices.fx.values()):
+            cumulative_issues.add("历史观察包含用户授权的估算汇率；相关日期的人民币收益为估算值")
         if not valid:
             cumulative_issues.add("资金流边界资料缺失，需补录后才能还原净值")
-        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):
+        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected) and not baseline_active:
             cumulative_issues = {"历史估值未补齐，暂不计算历史收益率；当前持仓可显示带日期的真实报价"}
         result.update(observed_at=iso(at), account_ids=sorted(selected), event_type=kind,
+            valuation_date=data.get("valuation_date") if kind == "valuation" else None,
             record_id=record_id, account_id=account_id, data=data, changes=changes,
             units=units, nav=last_nav if valid and assets is not None else None,
             cumulative_return=last_nav - 1 if valid and last_nav is not None and assets is not None else None,
             profit=assets - base - net_flows if base is not None and assets is not None and valid else None,
             opening_assets=base, net_flows=net_flows, external_flow=flow, interval=interval,
             ended=units == ZERO and base is not None, performance_issues=sorted(cumulative_issues))
-        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):
+        if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected) and not baseline_active:
             # Missing valuations at funding boundaries cannot be repaired with later quotes.
             result.update(nav=None, cumulative_return=None, profit=None)
         points.append(deepcopy(result))
@@ -305,4 +326,8 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
             # Only the present view may use an older genuine quote. Historical points
             # stay missing; this overlay must never become a saved valuation fact.
             current.update(prices.value(ledger, selected, last_at, latest=True))
+            if baseline_active and valid and current["total_assets"] is not None:
+                nav = current["total_assets"] / units if units > ZERO else last_nav
+                current.update(nav=nav, cumulative_return=nav - 1 if nav is not None else None,
+                               profit=current["total_assets"] - base - net_flows)
     return {"points": points, "current": current, "ledger": ledger, "prices": prices, "as_of": iso(last_at) if last_at else None}

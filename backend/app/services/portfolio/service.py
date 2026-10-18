@@ -133,6 +133,10 @@ def quotes(data, at):
         if instant(when) > at:
             raise ValueError("汇率实际时间晚于记录时间")
         result["fx"][curr] = {"rate": str(rate), "at": when, "source": str(item.get("source") or "手工")}
+        if "is_estimate" in item:
+            if not isinstance(item["is_estimate"], bool):
+                raise ValueError("汇率估算标记必须是布尔值")
+            result["fx"][curr]["is_estimate"] = item["is_estimate"]
     return result
 
 
@@ -318,7 +322,17 @@ def save_event(db, payload, record_id=None, commit=True):
                 if not p or not p["quantity"]:
                     raise ValueError("输入市值需要该实际时点的持仓数量")
                 item["price"] = str(number(item["market_value"], minimum=ZERO) / p["quantity"])
+        baseline, valuation_date = data.get("performance_baseline"), data.get("valuation_date")
         data = {"note": data["note"], **quotes(data, at)}
+        if baseline is not None:
+            if baseline != "all":
+                raise ValueError("收益基准范围必须为整体组合")
+            data["performance_baseline"] = baseline
+        if valuation_date is not None:
+            from datetime import date
+            data["valuation_date"] = date.fromisoformat(valuation_date).isoformat()
+            if at.date().isoformat() != data["valuation_date"] or any(instant(p["at"]).date().isoformat() != data["valuation_date"] for p in data["prices"]):
+                raise ValueError("收盘观察中的报价必须属于同一交易日期")
         if not data["prices"] and not data["fx"]:
             raise ValueError("请至少填写一项价格、市值或汇率")
     else:
@@ -385,7 +399,7 @@ def overview(db, scope="all", until=None, code=None, view="full"):
         points = [p for p in points if p["positions"]]
     if view == "chart":
         chart_fields = {"observed_at", "event_type", "record_id", "account_id", "interval", "ended",
-                        "total_assets", "nav", "units", "profit", "opening_assets", "cumulative_return", "asset_returns"}
+                        "total_assets", "nav", "units", "profit", "opening_assets", "cumulative_return", "asset_returns", "valuation_date"}
         points = [{k: v for k, v in p.items() if k in chart_fields} for p in points]
     openings, deals, events = facts(db)
     ids = {o.account_id for o in openings} if scope == "all" else {scope}
