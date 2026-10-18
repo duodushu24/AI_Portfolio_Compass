@@ -326,6 +326,8 @@ def save_event(db, payload, record_id=None, commit=True):
         for field in ("amount", "fees"):
             data[field] = str(number(data.get(field, 0), minimum=ZERO))
         if kind == "dividend":
+            if number(data["amount"]) <= number(data["fees"]):
+                raise ValueError("净分红金额必须大于零")
             if not str(data.get("code") or "").strip():
                 raise ValueError("现金分红请选择所属标的")
             data = asset(data)

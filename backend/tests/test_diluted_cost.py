@@ -55,7 +55,7 @@ def test_partial_sale_dividend_close_and_same_day_rebuy(db):
     before = s.calculate(db, "a")["current"]
     dividend(db, 4, "30")
     p = position(db)
-    assert p["cost"] == 523 and p["floating"] == 197 and p["dividends"] == 30
+    assert p["cost"] == 493 and p["floating"] == 227 and p["dividends"] == 30
     assert s.calculate(db, "a")["current"]["total_assets"] == before["total_assets"] + 30
     trade(db, 5, "SELL", "60", "11", "2")
     c = s.closed_positions(db, "a")["items"][0]
@@ -129,7 +129,7 @@ def test_weekly_total_return_is_cash_based_and_has_no_dividend_double_count(db):
     after = s.calculate(db, "a")["current"]
     assert after["total_assets"] == before + 100
     assert after["profit"] == 0  # 100 price loss + 100 cash dividend.
-    assert after["positions"][0]["floating"] == -100
+    assert after["positions"][0]["floating"] == 0
     assert after["positions"][0]["dividends"] == 100
     assert after["external_flow"] == 0 and after["units"] == 9000
 
@@ -143,3 +143,49 @@ def test_negative_opening_basis_and_legacy_unknown_basis(db):
     ledger.open("old", {"effective_at": at(1), "cash": {"CNY": "0"},
                         "positions": [{**asset(), "quantity": "2", "average_cost": "3"}]})
     assert ledger.accounts["old"]["positions"][("CN.SYNTH", "CNY", "share")]["cost"] is None
+
+
+def test_dividend_correction_void_and_quote_do_not_double_count(db):
+    trade(db, 2, "BUY", "10", "10")
+    before = s.calculate(db, "a")["current"]
+    event_id = dividend(db, 3, "12")
+    p = position(db)
+    assert p["quantity"] == 10 and p["cost"] == 88 and p["floating"] == 12
+    assert p["price"] == before["positions"][0]["price"]
+    s.save_event(db, {"account_id": "a", "kind": "dividend", "effective_at": at(3),
+        "data": {**asset(), "amount": "15"}}, event_id)
+    assert position(db)["cost"] == 85
+    assert s.calculate(db, "a")["current"]["cash_value"] == before["cash_value"] + 15
+    s.save_event(db, {"account_id": "a", "kind": "valuation", "effective_at": at(4),
+        "data": {"prices": [{**asset(), "price": "9", "at": at(4)}]}})
+    assert position(db)["cost"] == 85 and position(db)["floating"] == 5
+    s.void(db, "event", event_id)
+    assert position(db)["cost"] == 100 and position(db)["floating"] == -10
+    assert s.calculate(db, "a")["current"]["cash_value"] == before["cash_value"]
+
+
+def test_foreign_dividend_before_close_and_negative_cost(db):
+    foreign = {"code": "US.SYNTH", "market": "US", "currency": "USD"}
+    trade(db, 2, "BUY", "2", "10", **foreign, fx={"USD": {"rate": "7", "at": at(2)}})
+    dividend(db, 3, "25", **foreign, fx={"USD": {"rate": "8", "at": at(3)}})
+    p = position(db)
+    assert p["cost"] == -5 and p["cost_cny"] == -60 and p["holding_return"] is None
+    trade(db, 4, "SELL", "2", "9", **foreign, fx={"USD": {"rate": "9", "at": at(4)}})
+    c = s.closed_positions(db, "a")["items"][0]
+    assert D(c["trading_profit"]) == -2 and D(c["dividends"]) == 25
+    assert D(c["realized"]) == 23 and D(c["realized_cny"]) == 222
+
+
+def test_dividend_transfer_carries_discounted_cost_without_extra_cash(db):
+    s.save_opening(db, "b", {"effective_at": at(1), "positions": [], "cash": {"CNY": "0"}})
+    trade(db, 2, "BUY", "10", "10")
+    dividend(db, 3, "20")
+    cash = s.calculate(db)["current"]["cash_value"]
+    s.save_event(db, {"account_id": "a", "kind": "position_transfer", "effective_at": at(4),
+        "data": {**asset(), "quantity": "5", "to_account_id": "b"}})
+    current = s.calculate(db)["current"]
+    assert current["cash_value"] == cash
+    assert [p["cost"] for p in current["positions"]] == [40, 40]
+    trade(db, 5, "SELL", "5", "10")
+    s.save_trade(db, {**asset(), "account_id": "b", "effective_at": at(5), "side": "SELL", "quantity": "5", "price": "10"})
+    assert D(s.closed_positions(db)["summary"]["realized_cny"]) == 20

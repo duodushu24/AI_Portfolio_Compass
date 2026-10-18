@@ -218,7 +218,7 @@ def _local_reasoning(context: dict[str, Any]) -> dict[str, Any]:
             "conclusion": conclusion,
             "reasons": [
                 f"仓位类型为{layer}，分析逻辑按分层仓位处理。",
-                f"当前仓位占比约 {weight:.1%}，浮动盈亏约 {pl_ratio:.1%}。",
+                f"当前仓位占比约 {weight:.1%}，持仓盈亏约 {pl_ratio:.1%}。",
                 "分析直接采用当前持仓快照中的价格、成本、仓位和盈亏数据。",
             ],
             "risks": [

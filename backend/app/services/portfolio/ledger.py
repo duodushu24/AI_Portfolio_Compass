@@ -136,9 +136,10 @@ class Ledger:
                 self.cash(account_id, data["currency"], income)
         p["cycle_trades"].append(detail)
         if data["side"] == "SELL" and not p["quantity"]:
-            trading = -p["cost"] if p["cost"] is not None else None
-            gain = trading + p["cycle_dividends"] if trading is not None else None
-            gain_cny = -p["cost_cny"] + p["cycle_dividends_cny"] if p["cost_cny"] is not None and p["cycle_dividends_cny"] is not None else None
+            # Net cost already includes dividends; do not add them a second time.
+            gain = -p["cost"] if p["cost"] is not None else None
+            trading = gain - p["cycle_dividends"] if gain is not None else None
+            gain_cny = -p["cost_cny"] if p["cost_cny"] is not None else None
             basis = p["cycle_buy_total"]
             p["closed_cycles"].append({"cycle": p["cycle"], "opened_at": p["first_at"], "closed_at": at,
                 "realized": gain, "realized_cny": gain_cny, "disposed_cost": basis, "buy_total": basis,
@@ -183,6 +184,8 @@ class Ledger:
             p["cycle_dividends"] += net
             p["cycle_dividends_cny"] = p["cycle_dividends_cny"] + converted if p["cycle_dividends_cny"] is not None and converted is not None else None
             p["cycle_dividend_records"].append(record)
+            p["cost"] = p["cost"] - net if p["cost"] is not None else None
+            p["cost_cny"] = p["cost_cny"] - converted if p["cost_cny"] is not None and converted is not None else None
 
     def event(self, account_id, kind, data, record_id, at, fx=None):
         if account_id not in self.accounts:
