@@ -6,7 +6,7 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-18"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022"]
 related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md", "CODE_CHANGE_LOG/C-021-historical-fx-selection.md"]
 next: "验收历史汇率沿用后的人民币成本与清仓折算，以及后续手工更新和历史纠错"
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-18 按用户要求，由 [C-022](../CODE_CHANGE_LOG/C-022-quote-mark-display.md) 移除市值价旁的“旧”字上标，不增加表格日期说明行；悬停报价时间及来源、缺价和估算提示保留。TypeScript/Vite 构建通过；本批仅调整前端展示，未操作账目和报价事实，等待用户页面验收。
 
 2026-10-18 用户完成手工重新建账后，发现已有历史汇率仍无法计算人民币清仓盈亏。原因是成本/分红折算仅接受与事件精确到秒相同的汇率，与页面沿用承诺不一致。按用户确认的“本笔填写优先，否则采用实际时间不晚于交易的最近已保存记录”，由 [C-021](../CODE_CHANGE_LOG/C-021-historical-fx-selection.md) 完成统一历史汇率取用、补录/更正/作废重算、防未来汇率和折算依据披露。33 项相关后端检查、构建、正式重载及浏览器核对通过；原始账本事实未改，当前总资产、原币现金/成本/盈亏与组合收益保持不变，历史人民币成本和清仓折算从既有记录重新派生。下一步用户实际验收。
 
