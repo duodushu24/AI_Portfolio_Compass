@@ -2,7 +2,7 @@ import { assetUnit, priceUnit, quoteKindLabel, unitLabel } from "./assets";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Drawer, Empty, Select, Table, Tag, Tooltip } from "@arco-design/web-react";
 import { portfolioApi } from "./api";
-import type { Asset, Point, Portfolio } from "./types";
+import type { Asset, ChartPoint, Point, Portfolio } from "./types";
 import "./portfolio.css";
 
 export const numeric = (v: string | number | null | undefined) => v == null ? "—" : Number(v).toLocaleString("zh-CN", { maximumFractionDigits: 4 });
@@ -11,10 +11,10 @@ export const timeLabel = (v: string) => new Date(v).toLocaleString("zh-CN", { ho
 export const accountLabel = (id: string, names: Record<string, string> = {}) => names[id] || "未命名账户";
 export const labels: Record<string, string> = { opening: "建档", include: "纳入组合", exclude: "移出组合", trade: "买卖", valuation: "更新市值", deposit: "入金", withdrawal: "出金", transfer: "账户转账", dividend: "分红", interest: "利息", fee: "费用", fx: "换汇", subscription: "待确认申购", settle: "赎回到账", cancel_subscription: "申购撤回", split: "拆分", share_credit: "红股入账", position_transfer: "转托管" };
 
-function Chart({ points, metric, onSelect, assetCode = "" }: { points: Point[]; metric: string; onSelect: (p: Point) => void; assetCode?: string }) {
+function Chart({ points, metric, onSelect, assetCode = "" }: { points: ChartPoint[]; metric: string; onSelect: (p: ChartPoint) => void; assetCode?: string }) {
   if (!points.length) return <Empty description="确认期初后，买卖、资金和市值更新会自动形成收益记录。" />;
   if (points.every(p => p.cumulative_return == null && p.profit == null)) return <Empty description="历史估值未补齐，暂不展示收益曲线。交易和资金记录已保留。" />;
-  const value = (p: Point) => {
+  const value = (p: ChartPoint) => {
     if (assetCode) {
       const result = p.asset_returns[assetCode];
       return result == null ? null : Number(result) * 100;
@@ -63,18 +63,30 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
   const [data, setData] = useState<Portfolio | null>(null), [error, setError] = useState("");
   const [metric, setMetric] = useState("return"), [selected, setSelected] = useState<Point | null>(null);
   const request = useRef(0);
-  useEffect(() => { const id = ++request.current; if (portfolio) { setData(portfolio); setError(""); return; } setData(null); setSelected(null); portfolioApi.overview(accountId, code).then(result => { if (id === request.current) { setData(result); setError(""); } }).catch(e => { if (id === request.current) setError(String(e.message)); }); return () => { request.current++; }; }, [accountId, code, revision, portfolio]);
+  const pointRequest = useRef(0);
+  const [pointLoading, setPointLoading] = useState(false);
+  async function selectPoint(point: ChartPoint) {
+    const id = ++pointRequest.current, parentId = request.current;
+    setPointLoading(true);
+    try {
+      const detail = await portfolioApi.point(accountId, point, code);
+      if (id === pointRequest.current && parentId === request.current) setSelected(detail);
+    } catch (e) { if (id === pointRequest.current && parentId === request.current) setError(e instanceof Error ? e.message : "记录读取失败"); }
+    finally { if (id === pointRequest.current && parentId === request.current) setPointLoading(false); }
+  }
+  useEffect(() => { const id = ++request.current; if (portfolio) { setData(portfolio); setError(""); return () => { request.current++; }; } setData(null); setSelected(null); portfolioApi.overview(accountId, code).then(result => { if (id === request.current) { setData(result); setError(""); } }).catch(e => { if (id === request.current) setError(String(e.message)); }); return () => { request.current++; }; }, [accountId, code, revision, portfolio]);
   const current = data?.current, money = (v: string | null | undefined) => maskAssets ? "••••" : v == null ? "—" : Number(v).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
   const accountName = (id: string) => accountLabel(id, data?.account_names);
   const beginning = data?.points.find(p => p.interval === current?.interval && p.opening_assets != null);
   return <section className="panel portfolio-panel stack">
     <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "整体组合收益"}</h3><small>{code ? "唯一摊薄成本口径；现金分红不改成本，清仓后再买入重新计算" : "统计区间内的净值收益 · 包含现金、资金进出与汇率 · CNY"}</small></div>{!code && <Select value={metric} onChange={setMetric} options={[{ value: "return", label: "累计组合收益率" }, { value: "profit", label: "累计组合盈亏金额" }]} />}</div>
     {error && <Alert type="error" content={error} />}
+    {pointLoading && <small>正在读取当时账目…</small>}
     {!code && current && <div className="portfolio-metrics"><div>组合总资产<strong>{money(current.total_assets)} CNY</strong></div><div>累计组合收益率<strong>{percent(current.cumulative_return)}</strong></div><div>累计组合盈亏<strong>{money(current.profit)} CNY</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}
     {!code && current && <div className="portfolio-profit-basis"><p>组合盈亏从期初市值和现金开始统计；浮动盈亏包含当前阶段的部分卖出盈亏，不含现金分红；清仓收益在已清仓查询中展示，包含该阶段已收分红。</p><details><summary>查看组合盈亏计算依据</summary><p>收益起点：{beginning ? timeLabel(beginning.observed_at) : "期初估值待补齐"} · 期初总资产 {money(current.opening_assets)} CNY · 当前总资产 {money(current.total_assets)} CNY · 净外部入金 {money(current.net_flows)} CNY</p><p>组合盈亏＝当前总资产－期初总资产－期间净外部入金。买卖产生的现金已计入总资产，不另加一遍卖出利润。</p></details></div>}
     {current && (current.issues.length > 0 || current.performance_issues.length > 0) && <Alert type="warning" content={<details><summary>{current.quality === "missing" ? "资料缺失，完整资产及收益不可用" : "部分报价沿用旧值或使用估算；查看依据"}</summary>{[...current.issues, ...current.performance_issues].map(i => <p key={i}>{i}</p>)}</details>} />}
     {current?.ended && <Alert type="info" content="本连续区间已结束，保留最后有效收益；重新入金会开始新连续区间。" />}
-    <Chart points={data?.points ?? []} metric={metric} assetCode={code} onSelect={setSelected} />
+    <Chart points={data?.points ?? []} metric={metric} assetCode={code} onSelect={selectPoint} />
     {!current && <p>到账户与数据确认期初资料。未建档账户的旧快照保留为来源，不参与这条净值曲线。</p>}
     {current && showAssetTable && <><h4>{code ? "成本盈亏" : "当前持仓"}</h4><AssetTable assets={current.positions.filter(a => Number(a.quantity) > 0)} onOpen={onOpen} maskAssets={maskAssets} accountNames={data?.account_names} /></>}
     {code && current && <><h4>历次清仓</h4><Table rowKey={r => `${r.account_id}:${r.cycle}`} pagination={false} data={current.positions.flatMap(a => (a.closed_cycles ?? []).map(c => ({ ...c, account_id: a.account_id, currency: a.currency })))} columns={[

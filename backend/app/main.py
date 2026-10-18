@@ -590,7 +590,7 @@ def dashboard(account_id: str = Query("all"), db: Session = Depends(get_db)) -> 
     position_exposures = _aggregate_positions(positions, total_assets, base_currency, display_rates)
     account_rows = {item.account_id: item for item in db.query(Account).all()}
     return {
-        "performance": portfolio_service.overview(db, account_id),
+        "performance": portfolio_service.overview(db, account_id, view="current"),
         "sync": sync_status(db),
         "portfolio": {
             "account_id": account_id,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,26 +14,30 @@ REVIEW_MOVE_THRESHOLD = 0.03
 INTENT_TAG_CATEGORIES = ("trend", "market", "fundamental", "emotion")
 
 
-def refresh_trade_reviews(db: Session, fetch_market_data: bool = False) -> None:
+def refresh_trade_reviews(db: Session, fetch_market_data: bool = False, *, persist: bool = True) -> list[TradeReview]:
     deals = list(db.scalars(select(Deal).where(Deal.is_void.is_(False)).order_by(Deal.deal_time.desc(), Deal.id.desc())).all())
     positions = _latest_positions_by_code(db)
     kline_cache: dict[tuple[str, str], float | None] = {}
+    latest_prices = _latest_prices(db, {d.code for d in deals})
+    existing = {(r.account_id, r.deal_id): r for r in db.scalars(select(TradeReview))}
+    reviews = []
     for deal in deals:
-        review = db.scalar(
-            select(TradeReview).where(
-                TradeReview.account_id == deal.account_id,
-                TradeReview.deal_id == deal.deal_id,
-            )
-        )
+        review = existing.get((deal.account_id, deal.deal_id))
+        if review is not None and not persist:
+            # Preserve saved intent and K-line observations without dirtying ORM rows.
+            review = TradeReview(**{c.key: getattr(review, c.key) for c in TradeReview.__table__.columns})
         if not review:
             review = TradeReview(
-                review_id=f"trade_review_{uuid4().hex}",
+                review_id=f"trade_review_deal_{deal.id}",
                 account_id=deal.account_id,
                 deal_id=deal.deal_id,
                 created_at=datetime.now(timezone.utc),
             )
-        apply_trade_review_facts(db, review, deal, positions.get(deal.code), kline_cache, fetch_market_data)
-        db.add(review)
+        apply_trade_review_facts(db, review, deal, positions.get(deal.code), kline_cache, fetch_market_data, latest_prices)
+        if persist:
+            db.add(review)
+        reviews.append(review)
+    return reviews
 
 
 def apply_trade_review_facts(
@@ -44,6 +47,7 @@ def apply_trade_review_facts(
     position: Optional[PositionSnapshot] = None,
     kline_cache: dict[tuple[str, str], float | None] | None = None,
     fetch_market_data: bool = False,
+    latest_prices: dict[str, float | None] | None = None,
 ) -> TradeReview:
     now = datetime.now(timezone.utc)
     if fetch_market_data:
@@ -52,7 +56,7 @@ def apply_trade_review_facts(
     else:
         one_day_price = review.one_day_price if review.one_day_price is not None else _price_after(db, deal.code, deal.deal_time, days=1)
         five_day_price = review.five_day_price if review.five_day_price is not None else _price_after(db, deal.code, deal.deal_time, days=5)
-    latest_price = _latest_price(db, deal.code)
+    latest_price = latest_prices.get(deal.code) if latest_prices is not None else _latest_price(db, deal.code)
     one_day_return = _trade_return(deal.side, deal.price, one_day_price)
     five_day_return = _trade_return(deal.side, deal.price, five_day_price)
     latest_return = _trade_return(deal.side, deal.price, latest_price)
@@ -101,20 +105,11 @@ def trade_review_payload(
     account_id: str | None = None,
     fetch_market_data: bool = False,
 ) -> dict:
-    refresh_trade_reviews(db, fetch_market_data=fetch_market_data)
-    db.commit()
-    query = select(TradeReview).order_by(TradeReview.deal_time.desc(), TradeReview.created_at.desc())
-    if code:
-        query = query.where(TradeReview.code == code)
-    if side:
-        query = query.where(TradeReview.side == side)
-    if label:
-        query = query.where(TradeReview.result_label == label)
-    if account_id and account_id != "all":
-        query = query.where(TradeReview.account_id == account_id)
-    items = list(db.scalars(query.limit(200)).all())
-    active = {(d.account_id, d.deal_id) for d in db.scalars(select(Deal).where(Deal.is_void.is_(False)))}
-    items = [i for i in items if (i.account_id, i.deal_id) in active]
+    items = refresh_trade_reviews(db, fetch_market_data=fetch_market_data, persist=fetch_market_data)
+    if fetch_market_data:
+        db.commit()
+    items = [i for i in items if (not code or i.code == code) and (not side or i.side == side)
+             and (not label or i.result_label == label) and (account_id in (None, "all") or i.account_id == account_id)][:200]
     return {
         "empty": not items,
         "summary": _summary(items),
@@ -124,6 +119,14 @@ def trade_review_payload(
 
 def update_trade_review_intent(db: Session, review_id: str, payload: dict) -> TradeReview | None:
     review = db.get(TradeReview, review_id)
+    if not review and review_id.startswith("trade_review_deal_"):
+        # A read-only preview can receive its first saved intent here.
+        deal_id = review_id.removeprefix("trade_review_deal_")
+        deal = db.get(Deal, int(deal_id)) if deal_id.isdigit() else None
+        if deal is not None and not deal.is_void:
+            review = db.scalar(select(TradeReview).where(TradeReview.account_id == deal.account_id, TradeReview.deal_id == deal.deal_id))
+            review = review or TradeReview(review_id=review_id, account_id=deal.account_id, deal_id=deal.deal_id,
+                                          created_at=datetime.now(timezone.utc))
     if not review:
         return None
     if "note" in payload:
@@ -265,17 +268,19 @@ def _daily_kline_price_after(
 
 
 def _latest_price(db: Session, code: str) -> float | None:
+    return _latest_prices(db, {code}).get(code)
+
+
+def _latest_prices(db: Session, codes: set[str]) -> dict[str, float | None]:
     from app.services.portfolio.service import projection_quotes
-    ledger_quote = projection_quotes(db, [code]).get(code)
-    if ledger_quote:
-        return ledger_quote.current_price
-    quote = db.scalar(
-        select(QuoteSummary)
-        .where(QuoteSummary.code == code)
-        .order_by(QuoteSummary.quote_time.desc())
-        .limit(1)
-    )
-    return quote.current_price if quote else None
+    if not codes:
+        return {}
+    quotes = projection_quotes(db, codes)
+    prices = {code: quote.current_price for code, quote in quotes.items()}
+    missing = codes - prices.keys()
+    for quote in db.scalars(select(QuoteSummary).where(QuoteSummary.code.in_(missing)).order_by(QuoteSummary.quote_time.desc(), QuoteSummary.quote_id.desc())):
+        prices.setdefault(quote.code, quote.current_price)
+    return prices
 
 
 def _trade_return(side: str, deal_price: float, ref_price: float | None) -> float | None:

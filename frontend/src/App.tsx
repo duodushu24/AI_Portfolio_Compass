@@ -4,6 +4,7 @@ import { api, AccountSummary, AIAnalysis, AIWorkflowRun, Dashboard, DecisionCard
 import { ProShell } from "./layout/ProShell";
 import { PageContainer } from "./components/pro";
 import { DiaryLeaveGuard, ReviewWorkspace } from "./features/DiaryPage";
+import { DATA_CHANGED, invalidateReads } from "./requestCache";
 import { ReturnHistoryPanel } from "./features/ReturnHistoryPanel";
 import {
   AccountDataPage,
@@ -76,64 +77,57 @@ function App() {
   const displayRate = useMemo(() => displayRateFor(scopedDashboard, activeCurrency), [scopedDashboard, activeCurrency]);
   const emptySystem = Boolean(health?.local_data?.empty && dashboard?.empty && accounts.length === 0 && positions.length === 0);
 
+  const loadId = useRef(0);
+  const [dataRevision, setDataRevision] = useState(0);
+  useEffect(() => {
+    const changed = () => setDataRevision(v => v + 1);
+    window.addEventListener(DATA_CHANGED, changed);
+    return () => window.removeEventListener(DATA_CHANGED, changed);
+  }, []);
+
+  useEffect(() => {
+    setDashboard(null); setPositions([]); setReview(null);
+    setTradeReviews(null); setProfile(null); setWorkflowRuns([]);
+  }, [selectedAccount, workspace]);
+
   async function loadAll() {
-    const result = await Promise.allSettled([
-      api.health(),
-      api.accounts(),
-      api.dashboard(selectedAccount),
-      api.positions(layer === "全部" ? undefined : layer, selectedAccount),
-      api.review(selectedAccount),
-      api.tradeReviews(selectedAccount),
-      api.profile(selectedAccount),
-      api.profileWorkflows(selectedAccount),
-    ] as const);
-    let [healthData, accountData, dashboardData, positionData, reviewData, tradeReviewData, profileData, workflowData] = result;
-    const failedSections: string[] = [];
-
-    if (dashboardData.status === "rejected") {
-      dashboardData = await api.dashboard(selectedAccount)
-        .then((value) => ({ status: "fulfilled", value }) as PromiseFulfilledResult<Dashboard>)
-        .catch((reason) => ({ status: "rejected", reason }) as PromiseRejectedResult);
+    const id = ++loadId.current;
+    const valid = () => id === loadId.current && api.workspace() === workspace;
+    const tasks: Promise<void>[] = [];
+    const load = <T,>(label: string, request: Promise<T>, apply: (value: T) => void) => {
+      tasks.push(request.then(value => { if (valid()) apply(value); }).catch(() => {
+        if (valid()) setNotice(`${label}暂时加载失败，已保留可用数据`);
+      }));
+    };
+    load("账户", api.accounts(), value => setAccounts(value.items));
+    if (["首页", "账户与数据", "组合诊断", "AI与高级设置"].includes(active)) {
+      load("健康检查", api.health(), setHealth);
     }
-    if (positionData.status === "rejected") {
-      positionData = await api.positions(layer === "全部" ? undefined : layer, selectedAccount)
-        .then((value) => ({ status: "fulfilled", value }) as PromiseFulfilledResult<{ items: Position[]; count: number }>)
-        .catch((reason) => ({ status: "rejected", reason }) as PromiseRejectedResult);
+    if (["首页", "复盘", "组合诊断", "标的详情"].includes(active)) {
+      load("首页概览", api.dashboard(selectedAccount), setDashboard);
+      load("持仓", api.positions(layer === "全部" ? undefined : layer, selectedAccount), value => {
+        setPositions(value.items);
+        setSelectedCode(code => code || value.items[0]?.code || "");
+      });
     }
-    if (accountData.status === "rejected") {
-      accountData = await api.accounts()
-        .then((value) => ({ status: "fulfilled", value }) as PromiseFulfilledResult<{ items: AccountSummary[]; count: number }>)
-        .catch((reason) => ({ status: "rejected", reason }) as PromiseRejectedResult);
+    if (active === "复盘") {
+      load("复盘", api.review(selectedAccount), setReview);
     }
-
-    if (healthData.status === "fulfilled") setHealth(healthData.value);
-    else failedSections.push("健康检查");
-    if (accountData.status === "fulfilled") setAccounts(accountData.value.items);
-    else failedSections.push("账户");
-    if (dashboardData.status === "fulfilled") setDashboard(dashboardData.value);
-    else failedSections.push("首页概览");
-    if (positionData.status === "fulfilled") {
-      setPositions(positionData.value.items);
-      if (!selectedCode && positionData.value.items.length) setSelectedCode(positionData.value.items[0].code);
-    } else failedSections.push("资产组合");
-    if (reviewData.status === "fulfilled") setReview(reviewData.value);
-    else failedSections.push("复盘");
-    if (tradeReviewData.status === "fulfilled") setTradeReviews(tradeReviewData.value);
-    else failedSections.push("交易复盘");
-    if (profileData.status === "fulfilled") setProfile(profileData.value);
-    else failedSections.push("画像");
-    if (workflowData.status === "fulfilled") setWorkflowRuns(workflowData.value.items);
-    else failedSections.push("诊断报告");
-
-    if (failedSections.length) setNotice(`${failedSections.join("、")}暂时加载失败，已保留可用数据`);
+    // Home uses the review summary; it can arrive after assets are already visible.
+    if (["首页", "复盘"].includes(active)) {
+      load("交易复盘", api.tradeReviews(selectedAccount), setTradeReviews);
+    }
+    if (active === "组合诊断") load("画像", api.profile(selectedAccount), setProfile);
+    if (["首页", "组合诊断"].includes(active)) {
+      load("诊断报告", api.profileWorkflows(selectedAccount), value => setWorkflowRuns(value.items));
+    }
+    await Promise.all(tasks);
   }
 
   useEffect(() => {
-    loadAll().catch((error) => {
-      const message = error instanceof Error ? error.message : "加载失败";
-      setNotice(message.includes("暂时加载失败") ? message : `服务未连接：${message}`);
-    });
-  }, [layer, selectedAccount, workspace]);
+    void loadAll();
+    return () => { loadId.current++; };
+  }, [active, layer, selectedAccount, workspace, dataRevision]);
 
   useEffect(() => {
     if (!notice) return;
@@ -196,6 +190,10 @@ function App() {
     setDashboard(null);
     setPositions([]);
     setAccounts([]);
+    setReview(null);
+    setTradeReviews(null);
+    setProfile(null);
+    setWorkflowRuns([]);
     api.setWorkspace(next);
     setWorkspace(next);
     setNotice(next === "demo" ? "已进入演示工作区，所有数据均与正式数据隔离" : "已返回正式工作区");
@@ -274,12 +272,12 @@ function App() {
   }
 
   const content = useMemo(() => {
-    if (active === "首页") return <Home dashboard={scopedDashboard} positions={scopedPositions} tradeReviews={scopedTradeReviews} workflowRuns={workflowRuns} accounts={accounts} selectedAccount={selectedAccount} maskAssets={maskAssets} activeCurrency={activeCurrency} displayRate={displayRate} emptySystem={emptySystem} health={health} onFutuRefresh={async () => { await loadAll(); }} onFutuSync={refresh} onGenerateDiagnosis={() => { setProfilePageIntent({ kind: "generate", requestId: Date.now() }); setActive("组合诊断"); }} onOpenDiagnosisReport={(runId) => { setProfilePageIntent({ kind: "open", runId, requestId: Date.now() }); setActive("组合诊断"); }} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("首页"); setActive("标的详情"); }} />;
+    if (active === "首页") return <Home dashboard={scopedDashboard} positions={scopedPositions} tradeReviews={scopedTradeReviews} workflowRuns={workflowRuns} accounts={accounts} selectedAccount={selectedAccount} maskAssets={maskAssets} activeCurrency={activeCurrency} displayRate={displayRate} emptySystem={emptySystem} health={health} onFutuRefresh={async () => { invalidateReads(); await loadAll(); }} onFutuSync={refresh} onGenerateDiagnosis={() => { setProfilePageIntent({ kind: "generate", requestId: Date.now() }); setActive("组合诊断"); }} onOpenDiagnosisReport={(runId) => { setProfilePageIntent({ kind: "open", runId, requestId: Date.now() }); setActive("组合诊断"); }} onOpenCode={(code) => { setSelectedCode(code); setDetailReturnTarget("首页"); setActive("标的详情"); }} />;
     if (active === "资产组合") return <ReturnHistoryPanel key={workspace} accounts={accounts} maskAssets={maskAssets} onChanged={loadAll} onOpen={code => { setSelectedAccount("all"); setSelectedCode(code); setDetailReturnTarget("资产组合"); setActive("标的详情"); }} />;
     if (active === "复盘") return <ReviewWorkspace key={workspace} registerLeaveGuard={registerDiaryLeaveGuard} canLeaveCurrent={canLeaveCurrent}><ReviewPage review={review} tradeReviews={scopedTradeReviews} selectedAccount={selectedAccount} accounts={accounts} refreshingMarketData={refreshingTradeMarketData} onRefreshMarketData={refreshTradeReviewMarketData} onSaveIntent={async (reviewId, note, tags, plan) => { await api.updateTradeReviewIntent(reviewId, note, tags, plan); await loadAll(); }} /></ReviewWorkspace>;
     if (active === "组合诊断") return <ProfilePage profile={profile} positions={scopedPositions} selectedAccount={selectedAccount} accounts={accounts} health={health} setNotice={setNotice} requestConfirm={requestConfirm} homeIntent={profilePageIntent} onHomeIntentHandled={() => setProfilePageIntent(null)} onWorkflowRunsChanged={setWorkflowRuns} />;
     if (active === "标的详情") return <Detail detail={detail} selectedAccount={selectedAccount} onSaveLayer={saveLayer} onGenerateAi={generateAiAnalysis} generatingAi={generatingAi} setDetail={setDetail} setNotice={setNotice} />;
-    if (active === "账户与数据") return <AccountDataPage accounts={accounts} health={health} emptySystem={emptySystem} onChanged={loadAll} onImported={async () => { await loadAll(); setNotice("账户数据已导入"); }} setNotice={setNotice} requestConfirm={requestConfirm} onRefresh={refresh} onRefreshHealth={loadAll} loading={loading} />;
+    if (active === "账户与数据") return <AccountDataPage accounts={accounts} health={health} emptySystem={emptySystem} onChanged={loadAll} onImported={async () => { await loadAll(); setNotice("账户数据已导入"); }} setNotice={setNotice} requestConfirm={requestConfirm} onRefresh={refresh} onRefreshHealth={async () => { invalidateReads(); await loadAll(); }} loading={loading} />;
     return <AdvancedSettingsPage health={health} setNotice={setNotice} requestConfirm={requestConfirm} onDelete={async () => { await api.deleteLocalData(); setNotice("本地数据已删除"); await loadAll(); }} />;
   }, [active, dashboard, scopedDashboard, accounts, selectedAccount, health, positions, scopedPositions, review, scopedTradeReviews, profile, workflowRuns, profilePageIntent, layer, detail, selectedCode, loading, generatingAi, refreshingTradeMarketData, maskAssets, activeCurrency, displayRate, emptySystem, workspace, registerDiaryLeaveGuard, canLeaveCurrent]);
 

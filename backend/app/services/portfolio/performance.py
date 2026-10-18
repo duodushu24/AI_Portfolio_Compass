@@ -61,7 +61,7 @@ class Prices:
         item = self.fx.get(curr)
         return number(item["rate"]) if item else None
 
-    def value(self, ledger, accounts, at, *, latest=False):
+    def value(self, ledger, accounts, at, *, latest=False, include_cycles=True):
         positions, cash, pending, liabilities, issues = [], [], [], [], []
         total, market_value, cash_value = ZERO, ZERO, ZERO
 
@@ -109,7 +109,7 @@ class Prices:
                     "floating": native_gain, "holding_return": native_gain / cost if q and cost is not None and cost > ZERO and native_gain is not None else None,
                     "floating_cny": cny - p["cost_cny"] if q and cny is not None and p["cost_cny"] is not None else None,
                     "realized": p["realized"], "realized_cny": p["realized_cny"], "cycle": p["cycle"],
-                    "closed_cycles": deepcopy(p["closed_cycles"]),
+                    "closed_cycles": deepcopy(p["closed_cycles"]) if include_cycles else [],
                     "closed_return": p["closed_cycles"][-1]["return"] if not q and p["closed_cycles"] and p["closed_cycles"][-1]["cycle"] == p["cycle"] else None,
                     "quote": quote, "fx": self.fx.get(p["currency"]), "last_at": p["last_at"], "first_at": p["first_at"],
                     "position_layer": p.get("position_layer") or "中期配置仓"})
@@ -148,7 +148,7 @@ class Prices:
                 "liabilities": liabilities, "asset_returns": asset_returns, "issues": sorted(set(issues)), "quality": "missing" if not complete else "estimated" if issues else "complete"}
 
 
-def replay(openings, deals, events, scope="all", until=None, *, latest_current=False):
+def replay(openings, deals, events, scope="all", until=None, *, latest_current=False, compact=False):
     """Deterministic replay; no current FX cache, network, or edits to source rows."""
     timeline = []
     for row in openings:
@@ -194,7 +194,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
         if kind in {"split", "share_credit"}:
             # A pre-adjustment unit price is not a post-adjustment market quote.
             prices.real_prices.pop(key(data), None)
-        before = prices.value(ledger, before_scope, at)
+        before = prices.value(ledger, before_scope, at, include_cycles=False)
         before_assets = before["total_assets"]
         flow, changes = ZERO, None
         if kind == "include":
@@ -224,7 +224,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
                 rate = prices.rate(data["currency"])
                 flow = number(data["amount"]) * factor * rate if rate is not None else None if factor else ZERO
         selected = set(included) if scope == "all" else {scope} & set(ledger.accounts)
-        result = prices.value(ledger, selected, at)
+        result = prices.value(ledger, selected, at, include_cycles=not compact)
         assets = result["total_assets"]
         if (kind in {"include", "exclude"} and scope == "all") or (kind == "opening" and scope == account_id):
             flow = assets - before_assets if assets is not None and before_assets is not None else None
@@ -295,6 +295,10 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
             result.update(nav=None, cumulative_return=None, profit=None)
         points.append(deepcopy(result))
     current = deepcopy(points[-1]) if points else None
+    if current and compact:
+        # Closed stages belong in the current/detail view, not every history point.
+        for p in current["positions"]:
+            p["closed_cycles"] = deepcopy(ledger.accounts[p["account_id"]]["positions"][key(p)]["closed_cycles"])
     if current and latest_current:
         selected = set(current["account_ids"])
         if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected):

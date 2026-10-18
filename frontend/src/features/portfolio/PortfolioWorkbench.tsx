@@ -30,7 +30,7 @@ export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAcc
   async function reload() {
     const id = ++request.current;
     try {
-      const [result, initial] = await Promise.all([portfolioApi.overview(accountId), portfolioApi.opening(accountId)]);
+      const [result, initial] = await Promise.all([portfolioApi.overview(accountId, "", "", "records"), portfolioApi.opening(accountId)]);
       if (id === request.current) { setData(result); setOpening(initial); setReconciliation(initial.reconciliation); setError(""); }
     } catch (e) { if (id === request.current) setError(e instanceof Error ? e.message : "读取失败"); }
   }
@@ -140,7 +140,7 @@ function EntryEditor({ accountId, accounts, kind, record, portfolio, onClose, on
   type PriceRow = OpeningAsset & { at: string; source: string; price_kind: string; input_mode: string; input_value: string };
   const [prices, setPrices] = useState<PriceRow[]>([]), [loadedAt, setLoadedAt] = useState("");
   const [context, setContext] = useState(portfolio);
-  useEffect(() => { let cancelled = false; portfolioApi.overview(aid).then(result => { if (!cancelled) setContext(result); }).catch(e => { if (!cancelled) setError(String(e.message)); }); return () => { cancelled = true; }; }, [aid]);
+  useEffect(() => { let cancelled = false; portfolioApi.overview(aid, "", "", "current").then(result => { if (!cancelled) setContext(result); }).catch(e => { if (!cancelled) setError(String(e.message)); }); return () => { cancelled = true; }; }, [aid]);
   const request = useRef(0);
   const set = (name: string, value: string) => setFields(f => ({ ...f, [name]: value }));
   const assets = context?.current?.positions ?? [];
@@ -153,7 +153,7 @@ function EntryEditor({ accountId, accounts, kind, record, portfolio, onClose, on
       setLoadedAt(at); return;
     }
     const id = ++request.current;
-    portfolioApi.overview(aid, "", utc(at)).then(result => {
+    portfolioApi.overview(aid, "", utc(at), "current").then(result => {
       if (id !== request.current) return;
       setPrices((result.current?.positions ?? []).filter(p => Number(p.quantity) > 0).map(p => ({ ...p, average_cost: p.average_cost, price: p.price, quantity: p.quantity, at: utc(at), source: p.asset_type === "precious_metal" ? "手工银行报价" : "手工", price_kind: p.asset_type === "precious_metal" ? "redemption" : p.asset_type === "fund" ? "nav" : "price", input_mode: "price", input_value: "" })));
       setLoadedAt(at); setError("");

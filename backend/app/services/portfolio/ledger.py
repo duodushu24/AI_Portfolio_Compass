@@ -94,7 +94,7 @@ class Ledger:
             self.phase(p, at)
             book["positions"][k] = p
         q, price, fee = (number(data[n]) for n in ("quantity", "price", "fees"))
-        before = deepcopy(p)
+        before = {"quantity": p["quantity"], "cost": p["cost"]}
         amount = number(data["gross_amount"]) if data.get("gross_amount") is not None else q * price
         gain = None
         detail = {"record_id": data.get("record_id"), "at": at, "side": data["side"],

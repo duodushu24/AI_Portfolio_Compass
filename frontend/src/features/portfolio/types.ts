@@ -20,10 +20,11 @@ export type Point = {
   changes: { before_quantity: string; after_quantity: string; before_cost: string | null; after_cost: string | null; realized: string | null } | null;
   data: Record<string, unknown>;
 };
+export type ChartPoint = Pick<Point, "observed_at" | "event_type" | "record_id" | "account_id" | "interval" | "ended" | "total_assets" | "nav" | "units" | "profit" | "opening_assets" | "cumulative_return" | "asset_returns">;
 export type RecordItem = { id: number; category: "trade" | "event"; kind: string; account_id: string; effective_at: string; data: Record<string, unknown>; is_void: boolean };
 export type OpeningAsset = { code: string; name: string; market: string; currency: string; asset_type: string; unit: string; quantity: string; average_cost: string | null; price: string | null; price_at?: string; cost_cny_amount?: string | null };
 export type Opening = { account_id: string; effective_at: string; included: boolean; included_at?: string | null; excluded_at?: string | null; positions: OpeningAsset[]; cash: Record<string, string>; liabilities?: Record<string, string>; fx: Record<string, { rate: string; at: string; source: string }>; source?: string };
-export type Portfolio = { current: Point | null; points: Point[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string>; holdings: Asset[]; allocation: Array<{ type: string; weight: string }>; coverage: { included_accounts: string[]; unenrolled_accounts: string[] } };
+export type Portfolio = { current: Point | null; points: ChartPoint[]; records: RecordItem[]; openings: Opening[]; currency: string; scope: string; account_names?: Record<string, string>; holdings: Asset[]; allocation: Array<{ type: string; weight: string }>; coverage: { included_accounts: string[]; unenrolled_accounts: string[] } };
 
 export type Reconciliation = { code: string; currency: string; source_at: string; status: "mismatch" | "uncovered"; reason: string;
   source_quantity: string; ledger_quantity: string | null; source_average_cost: string | null; ledger_average_cost: string | null };

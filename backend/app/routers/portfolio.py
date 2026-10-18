@@ -17,8 +17,8 @@ def call(action):
 
 
 @router.get("/overview")
-def overview(account_id: str = "all", at: datetime | None = None, code: str | None = None, db: Session = Depends(get_db)):
-    return call(lambda: service.overview(db, account_id, at, code))
+def overview(account_id: str = "all", at: datetime | None = None, code: str | None = None, view: str = "full", db: Session = Depends(get_db)):
+    return call(lambda: service.overview(db, account_id, at, code, view))
 
 
 @router.get("/closed")
@@ -27,9 +27,15 @@ def closed(account_id: str = "all", start: datetime | None = None, end: datetime
     return call(lambda: service.closed_positions(db, account_id, start, end, keyword))
 
 
+@router.get("/point")
+def point(at: datetime, event_type: str, owner_id: str, account_id: str = "all", record_id: int | None = None,
+          code: str | None = None, db: Session = Depends(get_db)):
+    return call(lambda: service.point_detail(db, account_id, at, event_type, owner_id, record_id, code))
+
+
 @router.get("/accounts/{account_id}/opening")
 def opening(account_id: str, db: Session = Depends(get_db)):
-    result = service.overview(db, account_id)["openings"]
+    result = service.overview(db, account_id, view="current")["openings"]
     return call(lambda: {"confirmed": bool(result), "opening": result[0] if result else service.source_opening(db, account_id),
                          "reconciliation": service.reconcile(db, account_id) if result else []})
 

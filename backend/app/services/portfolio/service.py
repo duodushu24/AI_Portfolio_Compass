@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountSnapshot, Deal, HoldingObservationBatch, PortfolioEvent, PortfolioOpening, PositionSnapshot, QuoteSummary
@@ -20,8 +20,28 @@ def facts(db):
             list(db.scalars(select(PortfolioEvent))))
 
 
-def calculate(db, scope="all", until=None):
-    return replay(*facts(db), scope=scope, until=until or datetime.now(timezone.utc).replace(tzinfo=None), latest_current=until is None)
+@event.listens_for(Session, "after_flush")
+def _ledger_changed(db, context):
+    if any(isinstance(row, (PortfolioOpening, Deal, PortfolioEvent)) for row in db.new | db.dirty | db.deleted):
+        db.info.pop("portfolio_calculations", None)
+
+
+@event.listens_for(Session, "after_commit")
+@event.listens_for(Session, "after_rollback")
+def _transaction_ended(db):
+    db.info.pop("portfolio_calculations", None)
+
+
+def calculate(db, scope="all", until=None, *, compact=False):
+    # Sessions are request-scoped. Never share a financial result across requests.
+    db.flush()
+    cache = db.info.setdefault("portfolio_calculations", {})
+    cache_key = (scope, instant(until) if until else None, compact)
+    if cache_key not in cache:
+        cache[cache_key] = replay(*facts(db), scope=scope,
+            until=until or datetime.now(timezone.utc).replace(tzinfo=None),
+            latest_current=until is None, compact=compact)
+    return cache[cache_key]
 
 
 def enrolled(db, account_id):
@@ -353,12 +373,18 @@ def void(db, category, record_id):
     return transaction(db, write)
 
 
-def overview(db, scope="all", until=None, code=None):
-    result = calculate(db, scope, until)
+def overview(db, scope="all", until=None, code=None, view="full"):
+    if view not in {"full", "current", "chart", "records"}:
+        raise ValueError("未知组合视图")
+    result = calculate(db, scope, until, compact=view != "full")
     points = result["points"]
     if code:
         points = [{**p, "positions": [i for i in p["positions"] if i["code"] == code]} for p in points]
         points = [p for p in points if p["positions"]]
+    if view == "chart":
+        chart_fields = {"observed_at", "event_type", "record_id", "account_id", "interval", "ended",
+                        "total_assets", "nav", "units", "profit", "opening_assets", "cumulative_return", "asset_returns"}
+        points = [{k: v for k, v in p.items() if k in chart_fields} for p in points]
     openings, deals, events = facts(db)
     ids = {o.account_id for o in openings} if scope == "all" else {scope}
     name_ids = ids | {e.account_id for e in events if e.data.get("to_account_id") in ids}
@@ -380,11 +406,22 @@ def overview(db, scope="all", until=None, code=None):
         "coverage": {"included_accounts": sorted(included_ids), "unenrolled_accounts": [a.account_id for a in db.scalars(select(Account)) if a.account_id not in {o.account_id for o in openings}]},
         "holdings": aggregate_assets(current["positions"]) if current else [],
         "allocation": allocation(current),
-        "current": current, "points": points,
-        "records": sorted(records, key=lambda r: (r["effective_at"], r["category"], r["id"]), reverse=True),
+        "current": current, "points": points if view in {"full", "chart"} else [],
+        "records": sorted(records, key=lambda r: (r["effective_at"], r["category"], r["id"]), reverse=True) if view in {"full", "records"} or code else [],
         "openings": [{"account_id": o.account_id, "effective_at": iso(o.effective_at), "included": o.included_at is not None,
                       "included_at": iso(o.included_at) if o.included_at else None, "excluded_at": iso(o.excluded_at) if o.excluded_at else None,
                       **o.data} for o in openings if o.account_id in ids]})
+
+
+def point_detail(db, scope, at, event_type, owner_id, record_id=None, code=None):
+    result = calculate(db, scope, at, compact=True)
+    point = next((p for p in result["points"] if p["observed_at"] == iso(at) and p["event_type"] == event_type
+                  and p["account_id"] == owner_id and p["record_id"] == record_id), None)
+    if point is None:
+        raise ValueError("收益记录不存在，请刷新后重试")
+    if code:
+        point = {**point, "positions": [p for p in point["positions"] if p["code"] == code]}
+    return public(point)
 
 
 def aggregate_assets(positions):
@@ -426,7 +463,7 @@ def closed_positions(db, account_id="all", start=None, end=None, keyword=""):
     start, end = instant(start) if start else None, instant(end) if end else None
     if start and end and start > end:
         raise ValueError("开始日期不能晚于结束日期")
-    result = calculate(db)
+    result = calculate(db, compact=True)
     names = {a.account_id: a.display_name or a.institution or "未命名账户" for a in db.scalars(select(Account))}
     items = []
     for aid, book in result["ledger"].accounts.items():
@@ -483,7 +520,7 @@ def projection_positions(db, account_id=None, include_closed=False):
     ids = {o.account_id for o in openings if account_id in (None, "all", o.account_id)}
     if account_id in (None, "all"):
         ids &= {o.account_id for o in openings if o.included_at and o.included_at <= now and (o.excluded_at is None or o.excluded_at > now)}
-    result = calculate(db, "all", now)
+    result = calculate(db, compact=True)
     at = instant(result["as_of"]) if result["as_of"] else now
     rows = []
     for aid in ids:
@@ -512,7 +549,7 @@ def projection_positions(db, account_id=None, include_closed=False):
 def projection_accounts(db, account_id=None):
     rows = []
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    result = calculate(db, "all", now)
+    result = calculate(db, compact=True)
     at = instant(result["as_of"]) if result["as_of"] else now
     for o in db.scalars(select(PortfolioOpening)):
         if account_id not in (None, "all", o.account_id):
@@ -539,7 +576,7 @@ def reconcile(db, account_id):
     def at_time(at):
         at = instant(at)
         if at not in cache:
-            cache[at] = replay(*history, scope=account_id, until=at)["current"]
+            cache[at] = replay(*history, scope=account_id, until=at, compact=True)["current"]
         return cache[at]
     differences = []
     seen = set()
@@ -609,7 +646,7 @@ def ingest_quotes(db, rows, source):
 
 
 def projection_quotes(db, codes):
-    result = calculate(db)
+    result = calculate(db, compact=True)
     rows = {}
     for k, q in result["prices"].prices.items():
         code = k[0]

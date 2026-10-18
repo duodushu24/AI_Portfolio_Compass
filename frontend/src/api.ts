@@ -1,3 +1,4 @@
+import { cachedRead, invalidateReads } from "./requestCache";
 import type { Asset, Reconciliation } from "./features/portfolio/types";
 
 export type SyncStatus = {
@@ -598,12 +599,26 @@ function apiBase() {
 }
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const isFormData = options?.body instanceof FormData;
   const base = apiBase();
+  const reading = !options?.method || options.method.toUpperCase() === "GET";
+  if (reading) {
+    const reusable = /^\/api\/(portfolio\/|data\/accounts\/[^/]+\/overview|accounts(?:\?|$)|dashboard(?:\?|$)|positions(?:\?|\/|$)|review(?:\?|\/trades\?|$)|profile$)/.test(path);
+    return cachedRead(`${base}${path}`, () => fetchJson<T>(base, path, options), reusable ? 30000 : path === "/api/health" ? 5000 : 0);
+  }
+  invalidateReads();
+  try {
+    return await fetchJson<T>(base, path, options);
+  } finally {
+    invalidateReads(true);
+  }
+}
+
+async function fetchJson<T>(base: string, path: string, options?: RequestInit): Promise<T> {
+  const isFormData = options?.body instanceof FormData;
   let response: Response;
   try {
     response = await fetch(`${base}${path}`, {
-      headers: { ...(isFormData ? {} : { "Content-Type": "application/json" }), ...(options?.headers ?? {}) },
+      headers: { ...(isFormData || options?.body == null ? {} : { "Content-Type": "application/json" }), ...(options?.headers ?? {}) },
       ...options,
     });
   } catch (error) {
@@ -711,7 +726,7 @@ export const api = {
   holdingHistory: (accountId: string, at = "") => request<{ items: HoldingHistoryItem[]; batches: HoldingBatch[]; current_ids: number[] }>(`/api/returns/history?account_id=${encodeURIComponent(accountId)}${at ? `&at=${encodeURIComponent(at)}` : ""}`),
   confirmEmptyHoldings: (accountId: string, observedAt: string, market: string) => request(`/api/returns/accounts/${encodeURIComponent(accountId)}/empty`, { method: "POST", body: JSON.stringify({ observed_at: observedAt, market, confirmation: "EMPTY_SCOPE" }) }),
   workspace: currentWorkspace,
-  setWorkspace: (workspace: WorkspaceMode) => localStorage.setItem(WORKSPACE_STORAGE_KEY, workspace),
+  setWorkspace: (workspace: WorkspaceMode) => { invalidateReads(); localStorage.setItem(WORKSPACE_STORAGE_KEY, workspace); },
   health: () => request<HealthStatus>("/api/health"),
   aiProviders: () => request<{ items: AIProviderTemplate[] }>("/api/ai/providers"),
   aiConfig: () => request<AIConfigResponse>("/api/ai/config"),

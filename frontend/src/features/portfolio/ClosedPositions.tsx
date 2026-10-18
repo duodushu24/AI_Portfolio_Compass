@@ -73,7 +73,7 @@ export function ClosedPositions({ accountId, accounts, revision, maskAssets = fa
 // Data management shows the facts for this symbol, without another account performance chart.
 export function AssetHistory({ accountId, code, maskAssets }: { accountId: string; code: string; maskAssets: boolean }) {
   const [data, setData] = useState<Portfolio | null>(null), [error, setError] = useState("");
-  useEffect(() => { let cancelled = false; portfolioApi.overview(accountId, code).then(r => { if (!cancelled) setData(r); }).catch(e => { if (!cancelled) setError(String(e.message)); }); return () => { cancelled = true; }; }, [accountId, code]);
+  useEffect(() => { let cancelled = false; portfolioApi.overview(accountId, code, "", "records").then(r => { if (!cancelled) setData(r); }).catch(e => { if (!cancelled) setError(String(e.message)); }); return () => { cancelled = true; }; }, [accountId, code]);
   return <div className="stack">{error && <Alert type="error" content={error} />}<Table rowKey="id" data={(data?.records ?? []).filter(r => r.kind === "trade")} columns={[
     { title: "成交时间", dataIndex: "effective_at", render: timeLabel }, { title: "方向", render: (_, r) => r.data.side === "BUY" ? "买入" : "卖出" },
     { title: "数量", render: (_, r) => maskAssets ? "••••" : numeric(String(r.data.quantity)) },

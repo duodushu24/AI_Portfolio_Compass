@@ -1,3 +1,4 @@
+import { DATA_CHANGED } from "../requestCache";
 import { AssetHistory, ClosedPositions } from "./portfolio/ClosedPositions";
 import { assetOptions, assetUnit, goldCode, priceUnit, unitLabel } from "./portfolio/assets";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -3039,7 +3040,11 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
   const [editingDeal, setEditingDeal] = useState<AccountDeal | null | "new">(null);
   const [activeDataTab, setActiveDataTab] = useState("positions");
   const [portfolioRevision, setPortfolioRevision] = useState(0);
-  useEffect(() => { setPortfolioRevision(v => v + 1); }, [overview?.ledger_positions, overview?.deals, overview?.ledger_enrolled]);
+  useEffect(() => {
+    const changed = () => setPortfolioRevision(v => v + 1);
+    window.addEventListener(DATA_CHANGED, changed);
+    return () => window.removeEventListener(DATA_CHANGED, changed);
+  }, []);
   const activeAccount = enabledAccounts.find((account) => account.account_id === activeAccountId) ?? enabledAccounts[0];
   const activeAccountConfigKey = activeAccount ? [
     activeAccount.account_id,
@@ -3071,7 +3076,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
       .then(result => { if (!cancelled) setOverview(result); })
       .catch((error) => { if (!cancelled) setNotice(error instanceof Error ? error.message : "账户数据加载失败"); });
     return () => { cancelled = true; };
-  }, [activeAccountId, activeAccountConfigKey]);
+  }, [activeAccountId, activeAccountConfigKey, portfolioRevision]);
 
   async function chooseImport(file: File | null) {
     if (!file || !activeAccountId) return;
