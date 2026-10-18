@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from bisect import bisect_right
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -31,6 +32,36 @@ def public(value):
     if isinstance(value, (list, tuple)):
         return [public(v) for v in value]
     return value
+
+
+class FxHistory:
+    """Saved dated facts, including backfills; never the mutable live FX cache."""
+    def __init__(self, timeline):
+        self.rows, self.times = {}, {}
+        for order, (timestamp, _, _, kind, owner, data, record_id) in enumerate(timeline):
+            for curr, item in data.get("fx", {}).items():
+                if curr == "CNY":
+                    continue
+                fact = {**deepcopy(item), "recorded_at": iso(timestamp),
+                        "record_type": kind, "record_id": record_id, "account_id": owner}
+                self.rows.setdefault(curr, []).append((instant(item["at"]), order, fact))
+        for curr, rows in self.rows.items():
+            rows.sort(key=lambda row: (row[0], row[1]))
+            self.times[curr] = [row[0] for row in rows]
+
+    def at(self, at, preferred=None):
+        result = {"CNY": {"rate": "1", "at": None, "source": "本币"}}
+        for curr, rows in self.rows.items():
+            index = bisect_right(self.times[curr], at) - 1
+            if index >= 0:
+                result[curr] = {**deepcopy(rows[index][2]), "selection": "latest"}
+        for curr, item in (preferred or {}).items():
+            if curr != "CNY" and instant(item["at"]) <= at:
+                result[curr] = {**deepcopy(item), "selection": "explicit"}
+        for curr, item in result.items():
+            if curr != "CNY":
+                item["carried"] = instant(item["at"]) < at
+        return result
 
 
 class Prices:
@@ -173,6 +204,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
         if not row.is_void:
             timeline.append((row.effective_at, 1 if row.kind == "valuation" else 3, f"event:{row.id:012}", row.kind, row.account_id, row.data, row.id))
     timeline.sort(key=lambda e: (instant(e[0]), e[1], e[2]))
+    fx_history = FxHistory(timeline)
     ledger, prices, included, points = Ledger(), Prices(), set(), []
     units, base, net_flows, last_nav = ZERO, None, ZERO, None
     interval, valid, cumulative_issues = 0, True, set()
@@ -192,6 +224,9 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
             prices.update(data, at)
         else:
             prices.update(data, at)
+        # A backdated observation can repair earlier transactions, but no rate
+        # whose actual time is later than this event may enter its calculation.
+        prices.fx = fx_history.at(at, data.get("fx"))
         # A trade price is a dated observation; it also values the same asset in other accounts.
         if kind == "trade" and ledger.accounts[account_id].get("valuation_policy") != "explicit_only":
             prices.update({"prices": [{**{n: data[n] for n in ("code", "currency", "unit")},
@@ -212,8 +247,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
             included.discard(account_id)
         elif kind == "trade":
             cost_fx = prices.fx.get(data["currency"])
-            rate_for_cost = prices.rate(data["currency"]) if data["currency"] == "CNY" or cost_fx and instant(cost_fx["at"]) == at else None
-            changes = ledger.trade(account_id, data, iso(at), rate_for_cost)
+            changes = ledger.trade(account_id, data, iso(at), prices.rate(data["currency"]), cost_fx)
         elif kind not in {"opening", "valuation"}:
             # Cash + custody transfers are one fact with both sides applied atomically.
             if kind == "position_transfer":
@@ -224,8 +258,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
                 delta = int(data["to_account_id"] in before_scope) - int(account_id in before_scope)
                 flow = value * delta if value is not None else None if delta else ZERO
             rate_item = prices.fx.get(data.get("currency", "CNY"))
-            event_fx = prices.rate(data.get("currency", "CNY")) if data.get("currency", "CNY") == "CNY" or rate_item and instant(rate_item["at"]) == at else None
-            ledger.event(account_id, kind, data, f"event:{record_id}", iso(at), event_fx)
+            ledger.event(account_id, kind, data, f"event:{record_id}", iso(at), prices.rate(data.get("currency", "CNY")), rate_item)
             if kind in {"deposit", "withdrawal", "transfer"}:
                 factor = int(account_id in before_scope) * (1 if kind == "deposit" else -1)
                 if kind == "transfer":
@@ -304,6 +337,7 @@ def replay(openings, deals, events, scope="all", until=None, *, latest_current=F
         if any(ledger.accounts[aid].get("valuation_policy") == "explicit_only" for aid in selected) and not baseline_active:
             cumulative_issues = {"历史估值未补齐，暂不计算历史收益率；当前持仓可显示带日期的真实报价"}
         result.update(observed_at=iso(at), account_ids=sorted(selected), event_type=kind,
+            fx_basis={curr: deepcopy(item) for curr, item in prices.fx.items() if curr != "CNY" and curr in held_currencies},
             valuation_date=data.get("valuation_date") if kind == "valuation" else None,
             record_id=record_id, account_id=account_id, data=data, changes=changes,
             units=units, nav=last_nav if valid and assets is not None else None,

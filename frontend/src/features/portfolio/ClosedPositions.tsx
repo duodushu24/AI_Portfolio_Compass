@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Drawer, Input, Select, Table } from "@arco-design/web-react";
+import { Alert, Button, Drawer, Input, Select, Table, Tooltip } from "@arco-design/web-react";
 import type { AccountSummary } from "../../api";
 import { portfolioApi } from "./api";
 import { numeric, percent, timeLabel } from "./PortfolioPanel";
-import type { ClosedPosition, ClosedQuery, ClosedTrade, Portfolio } from "./types";
+import type { ClosedPosition, ClosedQuery, ClosedTrade, FxUse, Portfolio } from "./types";
 import { unitLabel } from "./assets";
 
 const amount = (v: string | null, masked: boolean) => masked ? "••••" : v == null ? "—" : Number(v).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 const day = (v: string) => new Date(v).toLocaleDateString("zh-CN");
+const rateLabel = (fx?: FxUse | null) => fx ? <Tooltip content={`${timeLabel(fx.at)} · ${fx.source} · ${fx.selection === "explicit" ? "本笔填写" : "最近历史记录"}`}><span>{numeric(fx.rate)}{fx.carried ? "（沿用）" : fx.is_estimate ? "（估算）" : ""}</span></Tooltip> : "—";
 
 export function ClosedPositions({ accountId, accounts, revision, maskAssets = false }: { accountId: string; accounts: AccountSummary[]; revision?: unknown; maskAssets?: boolean }) {
   const [account, setAccount] = useState(accountId), [keyword, setKeyword] = useState(""), [start, setStart] = useState(""), [end, setEnd] = useState("");
@@ -36,12 +37,13 @@ export function ClosedPositions({ accountId, accounts, revision, maskAssets = fa
     </div>
     {error && <Alert type="error" content={error} />}
     <div className="portfolio-metrics closed-summary">
-      <div>清仓盈亏（{summaryCurrency}{singleCurrency && singleCurrency !== "CNY" ? "，原币" : ""}）<strong>{amount(summaryAmount, maskAssets)}</strong></div>
+      <div>清仓盈亏（{summaryCurrency}{singleCurrency && singleCurrency !== "CNY" ? "，原币" : ""}）<strong>{amount(summaryAmount, maskAssets)}</strong>{summaryCurrency !== "CNY" && summary?.realized_cny != null && <small>人民币折算 {amount(summary.realized_cny, maskAssets)} CNY</small>}</div>
       <div>清仓胜率<strong>{summary ? percent(summary.win_rate) : "—"}</strong></div>
       <div>清仓次数<strong>{summary?.count ?? "—"}</strong></div>
       <div>涉及标的数<strong>{summary?.symbol_count ?? "—"}</strong></div>
     </div>
     {!!summary?.missing_cny_count && <Alert type="warning" content={`有 ${summary.missing_cny_count} 次清仓缺少历史人民币成本或卖出时汇率，人民币合计暂不可用。按原币已知盈亏：${Object.entries(summary.by_currency).map(([c, v]) => `${amount(v, maskAssets)} ${c}`).join("；") || "无"}。原币盈亏不受人民币折算资料缺失影响。`} />}
+    {!!summary?.estimated_cny_count && <Alert type="info" content={`有 ${summary.estimated_cny_count} 次清仓的人民币折算采用沿用或估算汇率；具体汇率、日期及来源可在清仓详情查看。`} />}
     {!!summary?.unknown_count && <small>有 {summary.unknown_count} 次清仓成本未知，不计入胜率；胜率＝盈利次数 ÷ 盈亏已知次数，持平计入分母。</small>}
     <Table className="portfolio-compact-table" tableLayoutFixed rowKey={r => `${r.account_id}:${r.code}:${r.currency}:${r.unit}:${r.cycle}`} data={data?.items ?? []} loading={loading} pagination={{ pageSize: 10 }} scroll={{ x: 1250 }} onRow={r => ({ onClick: () => setDetail(r) })} columns={[
       { title: "标的", width: 180, render: (_, r: ClosedPosition) => <div className="portfolio-asset-cell"><button type="button" className="portfolio-name-button" onClick={() => setDetail(r)}>{r.name || r.code}</button><small>{r.code}</small></div> },
@@ -58,6 +60,7 @@ export function ClosedPositions({ accountId, accounts, revision, maskAssets = fa
     {detail && <Drawer visible title={`${detail.name} · 第 ${detail.cycle} 次持有`} width={1000} footer={null} onCancel={() => setDetail(null)}>
       <div className="stack"><p>{detail.account_name} · {timeLabel(detail.opened_at)} — {timeLabel(detail.closed_at)}</p>
         <p>清仓盈亏 {amount(detail.realized, maskAssets)} {detail.currency} · 清仓收益率 {percent(detail.return)} · 累计买入支出 {amount(detail.buy_total, maskAssets)} {detail.currency}</p>
+        {detail.currency !== "CNY" && <p>人民币清仓盈亏 {amount(detail.realized_cny, maskAssets)} CNY；按各笔历史汇率分别折算净买入支出、净卖出收入及分红。</p>}
         <p>买卖盈亏 {amount(detail.trading_profit, maskAssets)} · 现金分红 {amount(detail.dividends, maskAssets)}；清仓收益率以累计买入支出为基数。</p>
         {detail.opening_kind !== "buy" && <Alert type="info" content="本阶段从已有持仓或转入开始，真实首次买入日期未确认；不计算完整持有天数。" />}
         <p>以下数量按{unitLabel(detail.unit)}、单价按 {detail.currency}／{unitLabel(detail.unit)}、费用与盈亏按 {detail.currency} 展示。</p>
@@ -67,6 +70,7 @@ export function ClosedPositions({ accountId, accounts, revision, maskAssets = fa
           { title: "成交价", align: "right", render: (_, r: ClosedTrade) => maskAssets ? "••••" : numeric(r.price) },
           { title: "费用", align: "right", render: (_, r: ClosedTrade) => amount(r.fees, maskAssets) },
           { title: "净清算金额", align: "right", render: (_, r: ClosedTrade) => amount(r.cash_amount, maskAssets) },
+          ...(detail.currency !== "CNY" ? [{ title: "折算汇率", render: (_: unknown, r: ClosedTrade) => rateLabel(r.fx) }] : []),
         ]} />
         {!!detail.dividend_records?.length && <><h4>本阶段现金分红</h4><Table rowKey="record_id" pagination={false} data={detail.dividend_records} columns={[{ title: "到账时间", dataIndex: "at", render: timeLabel }, { title: "净到账金额", render: (_, r) => amount(r.amount, maskAssets) }, { title: "币种", dataIndex: "currency" }]} /></>}
       </div>

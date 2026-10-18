@@ -496,7 +496,10 @@ def closed_positions(db, account_id="all", start=None, end=None, keyword=""):
                 if start and at < start or end and at > end:
                     continue
                 # A snapshot/transfer is not proof of the original purchase date.
+                fx_records = [r.get("fx") for r in [*c["trades"], *c["dividend_records"]] if r.get("fx")]
+                cny_quality = "missing" if c["realized_cny"] is None else "estimated" if any(r.get("carried") or r.get("is_estimate") for r in fx_records) else "complete"
                 items.append({**c, "account_id": aid, "account_name": names.get(aid, "未命名账户"),
+                    "cny_quality": cny_quality,
                     **{n: p[n] for n in ("code", "name", "currency", "unit")},
                     "holding_days": (at.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=8))).date()
                         - instant(c["opened_at"]).replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=8))).date()).days if c["opening_kind"] == "buy" else None})
@@ -511,7 +514,7 @@ def closed_positions(db, account_id="all", start=None, end=None, keyword=""):
         "known_count": len(known), "unknown_count": len(items) - len(known),
         "realized_cny": sum((r["realized_cny"] for r in cny), ZERO) if len(cny) == len(items) else None,
         "known_realized_cny": sum((r["realized_cny"] for r in cny), ZERO),
-        "missing_cny_count": len(items) - len(cny), "by_currency": native}})
+        "missing_cny_count": len(items) - len(cny), "estimated_cny_count": sum(r["cny_quality"] == "estimated" for r in items), "by_currency": native}})
 
 
 def source_opening(db, account_id):

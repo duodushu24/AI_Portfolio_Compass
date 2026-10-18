@@ -80,7 +80,7 @@ class Ledger:
             raise ValueError(f"账户 {account_id} 的 {curr} 现金不足，请补录真实资金或核对日期")
         book["cash"][curr] = max(result, ZERO)
 
-    def trade(self, account_id, data, at, fx=None):
+    def trade(self, account_id, data, at, fx=None, fx_observation=None):
         if account_id not in self.accounts:
             raise ValueError("成交日期早于账户建档，请核对起点")
         book = self.accounts[account_id]
@@ -99,6 +99,8 @@ class Ledger:
         gain = None
         detail = {"record_id": data.get("record_id"), "at": at, "side": data["side"],
                   "quantity": q, "price": price, "fees": fee, "gross_amount": amount}
+        if data["currency"] != "CNY":
+            detail["fx"] = deepcopy(fx_observation)
         if data["side"] == "BUY":
             if not p["quantity"]:
                 p["cycle"] += 1
@@ -154,7 +156,7 @@ class Ledger:
         return {"before_quantity": before["quantity"], "after_quantity": p["quantity"],
                 "before_cost": before["cost"], "after_cost": p["cost"], "realized": gain}
 
-    def dividend(self, book, data, record_id, at, net, fx):
+    def dividend(self, book, data, record_id, at, net, fx, fx_observation=None):
         matches = [p for p in book["positions"].values() if p["code"] == data.get("code") and p["currency"] == data.get("currency", "CNY")
                    and (not data.get("unit") or p["unit"] == data["unit"])]
         p = matches[0] if len(matches) == 1 else None
@@ -163,6 +165,8 @@ class Ledger:
             candidates = [c["cycle"] for c in p["closed_cycles"]] + ([p["cycle"]] if p["quantity"] else [])
             cycle = candidates[0] if len(candidates) == 1 else None
         record = {"record_id": record_id, "at": at, "amount": net, "currency": data.get("currency", "CNY"), "cycle": cycle}
+        if record["currency"] != "CNY":
+            record["fx"] = deepcopy(fx_observation)
         closed = next((c for c in p["closed_cycles"] if c["cycle"] == cycle), None) if p else None
         target = closed if closed is not None else p if p and p["quantity"] and p["cycle"] == cycle else None
         if target is None:
@@ -187,7 +191,7 @@ class Ledger:
             p["cost"] = p["cost"] - net if p["cost"] is not None else None
             p["cost_cny"] = p["cost_cny"] - converted if p["cost_cny"] is not None and converted is not None else None
 
-    def event(self, account_id, kind, data, record_id, at, fx=None):
+    def event(self, account_id, kind, data, record_id, at, fx=None, fx_observation=None):
         if account_id not in self.accounts:
             raise ValueError("记录日期早于账户建档")
         book = self.accounts[account_id]
@@ -197,7 +201,7 @@ class Ledger:
         if kind in {"deposit", "dividend", "interest"}:
             self.cash(account_id, curr, amount - fee)
             if kind == "dividend":
-                self.dividend(book, data, record_id, at, amount - fee, fx)
+                self.dividend(book, data, record_id, at, amount - fee, fx, fx_observation)
         elif kind in {"withdrawal", "fee"}:
             self.cash(account_id, curr, -amount - fee)
         elif kind == "transfer":

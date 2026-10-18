@@ -184,7 +184,9 @@ def test_fx_historic_cost_not_fabricated_and_cash_fx_income(records):
         assert s.calculate(db, until=T)["current"]["total_assets"] == 1400
         trade(db, day=3, quantity="1", price="10", code="US.NEW", market="US", currency="USD")
         p = next(p for p in current(db)["positions"] if p["code"] == "US.NEW")
-        assert p["cost"] == 10 and p["cost_cny"] is None  # Prior FX is a valuation estimate, not an exact acquiring cost.
+        # New trades use the saved historical rate; old snapshot acquisition cost stays unknown.
+        assert p["cost"] == 10 and p["cost_cny"] == 80
+        assert p["fx"]["carried"] and p["fx"]["at"] == when(1)
 
 
 def test_missing_price_fx_unknown_and_zero_cost(records):

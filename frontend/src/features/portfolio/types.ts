@@ -8,9 +8,11 @@ export type Asset = {
   position_weight: string | null; closed_return: string | null;
   closed_cycles: Array<{ cycle: number; opened_at: string; closed_at: string; realized: string | null; disposed_cost: string | null; return: string | null }>;
 };
+export type FxUse = { rate: string; at: string; source: string; carried?: boolean; is_estimate?: boolean; selection?: string };
 export type Point = {
   observed_at: string; event_type: string; account_id: string; record_id: number | null;
   valuation_date?: string | null;
+  fx_basis?: Record<string, FxUse>;
   total_assets: string | null; cash_value: string | null; market_value: string | null; profit: string | null;
   opening_assets: string | null; net_flows: string;
   cumulative_return: string | null; nav: string | null; units: string; interval: number; ended: boolean;
@@ -35,6 +37,6 @@ export type HistoryEntry = { kind: string; effective_at: string; data: Record<st
 export type HistoryPreview = { checkpoint_at: string; new_start: string; record_count: number; current: Point;
   differences: Array<{ item: string; before: string | null; after: string | null }> };
 
-export type ClosedTrade = { cash_amount: string; gross_amount: string; record_id: string; at: string; side: string; quantity: string; price: string; fees: string; disposed_cost: string | null; realized: string | null };
+export type ClosedTrade = { cash_amount: string; gross_amount: string; record_id: string; at: string; side: string; quantity: string; price: string; fees: string; disposed_cost: string | null; realized: string | null; fx?: FxUse | null };
 export type ClosedPosition = { buy_total: string | null; sell_total: string; trading_profit: string | null; dividends: string; dividend_records: Array<{record_id: string; at: string; amount: string; currency: string}>; account_id: string; account_name: string; code: string; name: string; currency: string; unit: string; cycle: number; opened_at: string; closed_at: string; holding_days: number | null; realized: string | null; realized_cny: string | null; disposed_cost: string | null; return: string | null; opening_kind: string; trades: ClosedTrade[] };
-export type ClosedQuery = { items: ClosedPosition[]; summary: { count: number; symbol_count: number; win_rate: string | null; known_count: number; unknown_count: number; realized_cny: string | null; known_realized_cny: string; missing_cny_count: number; by_currency: Record<string, string> } };
+export type ClosedQuery = { items: ClosedPosition[]; summary: { count: number; symbol_count: number; win_rate: string | null; known_count: number; unknown_count: number; realized_cny: string | null; known_realized_cny: string; missing_cny_count: number; estimated_cny_count?: number; by_currency: Record<string, string> } };
