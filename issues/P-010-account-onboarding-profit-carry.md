@@ -6,10 +6,10 @@ title: "统一账户起点导入与历史盈亏结转"
 status: active
 created: "2026-10-18"
 updated: "2026-10-19"
-changes: ["C-023", "C-024", "C-025"]
+changes: ["C-023", "C-024", "C-025", "C-026"]
 related: ["P-005", "P-007", "P-009"]
 evidence: ["issues/solutions/P-010/S-001-onboarding-profit-carry.md", "backend/app/services/portfolio/profit.py", "backend/app/services/portfolio/opening_import.py", "backend/tests/test_opening_profit.py", "CODE_CHANGE_LOG/C-023-onboarding-profit-carry.md"]
-next: "用户验收累计/统计期四种视图联动、日曲线日期及零刻度，并继续核对起点导入、纠错与删除"
+next: "用户验收全区间、缩放平移、缺失虚线及四视图联动，并继续核对起点导入、纠错与删除"
 priority: high
 tags: ["onboarding", "import", "profit", "product"]
 ---
@@ -17,6 +17,8 @@ tags: ["onboarding", "import", "profit", "product"]
 # P-010：统一账户起点导入与历史盈亏结转
 
 ## 当前进度
+
+2026-10-19 [C-026](../CODE_CHANGE_LOG/C-026-chart-zoom-gap-context.md) 处理用户反馈的断线不明及横轴过长：默认全区间适配窗口，支持滚轮/按钮缩放、拖动平移及底部范围手柄，日期标签自动疏密、完整日期可悬停查看。灰点保留为空值标记，前后已知值用带说明的虚线连接，统计期跨区间仍断开。7 项图表规则、19 项离线真实鼠标交互及构建通过，截图已核对；未启动前后端或改动真实账目。替代 C-025 逐日期撑宽画布的布局。
 
 2026-10-19 [C-025](../CODE_CHANGE_LOG/C-025-profit-views-daily-chart.md) 按用户确认方案完成四种收益视图，摘要金额、收益率与曲线联动，默认累计收益率。后端逐点计算净投入及累计收益率，净投入非正时保持收益率为空；前端明确零刻度、统一日日期、同日最后有效估值及完整记录展开，密集日期可横向滚动。23 项后端、5 项图表规则、构建和 19 项离线浏览器检查通过；没有启动前后端或改动真实账目，实际使用待验收。此批替代 C-024“摘要固定累计、曲线仅统计期”的展示安排。
 
