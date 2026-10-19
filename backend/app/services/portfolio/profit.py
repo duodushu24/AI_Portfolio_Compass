@@ -36,5 +36,10 @@ class ProfitCarry:
                          "cumulative_profit": initial + period if initial is not None and period is not None else None})
         missing = [r["account_id"] for r in rows if r["cumulative_profit"] is None]
         known = sum((r["cumulative_profit"] for r in rows if r["cumulative_profit"] is not None), ZERO)
-        return {"cumulative_profit": known if not missing else None, "known_cumulative_profit": known,
+        profit = known if not missing else None
+        assets = sum(amounts.values(), ZERO) if all(v is not None for v in amounts.values()) else None
+        investment = assets - profit if assets is not None and profit is not None else None
+        rate = profit / investment if investment is not None and investment > ZERO else None
+        return {"cumulative_profit": profit, "cumulative_net_investment": investment, "cumulative_profit_rate": rate,
+                "known_cumulative_profit": known,
                 "missing_cumulative_accounts": missing, "account_profits": rows}

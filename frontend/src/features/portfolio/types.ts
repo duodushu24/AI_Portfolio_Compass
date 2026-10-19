@@ -10,6 +10,7 @@ export type Asset = {
 };
 export type FxUse = { rate: string; at: string; source: string; carried?: boolean; is_estimate?: boolean; selection?: string };
 export type Point = {
+  cumulative_profit_rate: string | null; cumulative_net_investment: string | null;
   cumulative_profit: string | null; known_cumulative_profit: string; missing_cumulative_accounts: string[];
   account_profits: Array<{account_id: string; historical_profit_cny: string | null; opening_holding_profit: string | null; opening_profit: string | null; profit_since_opening: string | null; cumulative_profit: string | null}>;
   observed_at: string; event_type: string; account_id: string; record_id: number | null;
@@ -25,7 +26,7 @@ export type Point = {
   changes: { before_quantity: string; after_quantity: string; before_cost: string | null; after_cost: string | null; realized: string | null } | null;
   data: Record<string, unknown>;
 };
-export type ChartPoint = Pick<Point, "observed_at" | "event_type" | "record_id" | "account_id" | "interval" | "ended" | "total_assets" | "nav" | "units" | "profit" | "opening_assets" | "cumulative_return" | "asset_returns" | "valuation_date"> & {
+export type ChartPoint = Pick<Point, "observed_at" | "event_type" | "record_id" | "account_id" | "interval" | "ended" | "total_assets" | "nav" | "units" | "profit" | "opening_assets" | "cumulative_return" | "asset_returns" | "valuation_date" | "cumulative_profit" | "cumulative_profit_rate" | "cumulative_net_investment"> & {
   transaction?: { code: string; name: string; side: string; quantity: string; price: string; fees: string; currency: string; unit: string };
 };
 export type RecordItem = { id: number; category: "trade" | "event"; kind: string; account_id: string; effective_at: string; data: Record<string, unknown>; is_void: boolean };

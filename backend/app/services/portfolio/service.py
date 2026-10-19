@@ -419,7 +419,8 @@ def overview(db, scope="all", until=None, code=None, view="full"):
         points = [p for p in points if p["positions"]]
     if view == "chart":
         chart_fields = {"observed_at", "event_type", "record_id", "account_id", "interval", "ended",
-                        "total_assets", "nav", "units", "profit", "opening_assets", "cumulative_return", "asset_returns", "valuation_date"}
+                        "total_assets", "nav", "units", "profit", "opening_assets", "cumulative_return", "asset_returns", "valuation_date",
+                        "cumulative_profit", "cumulative_profit_rate", "cumulative_net_investment"}
         points = [{**{k: v for k, v in p.items() if k in chart_fields},
                    **({"transaction": {k: p["data"].get(k) for k in
                        ("code", "name", "side", "quantity", "price", "fees", "currency", "unit")}}

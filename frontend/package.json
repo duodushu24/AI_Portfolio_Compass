@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 4410",
     "build": "tsc && vite build",
     "test:cache": "tsc src/requestCache.ts --outDir ../.runtime/request-cache-test --module commonjs --target ES2020 && node --test tests/requestCache.test.cjs",
+    "test:portfolio-chart": "tsc src/features/portfolio/chartLayout.ts --outDir ../.runtime/portfolio-chart-test --module commonjs --target ES2020 && node --test tests/portfolioChart.test.cjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

@@ -84,10 +84,47 @@ def test_unknown_cost_does_not_block_period_profit_or_become_known(db):
     assert current["cumulative_profit"] is None and current["profit"] == "0"
     assert current["account_profits"][0]["opening_holding_profit"] is None
     assert current["account_profits"][0]["historical_profit_cny"] == "0"
+    assert current["cumulative_profit_rate"] is None and current["cumulative_net_investment"] is None
     s.save_opening(db, "b", dict(effective_at=T, positions=[], cash={"CNY":"0"}, historical_profit_cny="250"))
     current = s.overview(db)["current"]
     assert current["cumulative_profit"] is None and current["missing_cumulative_accounts"] == ["a"]
     assert current["known_cumulative_profit"] == "250"
+
+
+def test_cumulative_rate_uses_each_points_own_assets_and_net_investment(db):
+    opening(db)
+    event(db, "deposit", 2, amount="5000")
+    event(db, "valuation", 3, prices=[dict(ASSET, price="1010")])
+    event(db, "withdrawal", 4, amount="5000")
+    full = s.overview(db)
+    chart = s.overview(db, view="chart")
+    assert [D(p["cumulative_net_investment"]) for p in chart["points"]] == [95000, 100000, 100000, 95000]
+    assert [D(p["cumulative_profit"]) for p in chart["points"]] == [25000, 25000, 26000, 26000]
+    for actual, point in zip(chart["points"], full["points"], strict=True):
+        for field in ("cumulative_profit", "cumulative_profit_rate", "cumulative_net_investment"):
+            assert actual[field] == point[field]
+        assert D(actual["cumulative_profit_rate"]) == D(actual["cumulative_profit"]) / D(actual["cumulative_net_investment"])
+    event(db, "valuation", 5, performance_baseline="all", prices=[dict(ASSET, price="1010")])
+    current = s.overview(db)["current"]
+    assert current["profit"] == "0" and current["cumulative_return"] == "0"
+    assert D(current["cumulative_profit_rate"]) == D(26000) / D(95000)
+
+
+def test_cumulative_rate_aggregates_investment_instead_of_averaging_account_rates(db):
+    opening(db)
+    s.save_opening(db, "b", dict(effective_at=T, positions=[], cash={"CNY":"50000"}, historical_profit_cny="5000"))
+    current = s.overview(db)["current"]
+    assert current["cumulative_profit"] == "30000" and current["cumulative_net_investment"] == "140000"
+    assert D(current["cumulative_profit_rate"]) == D(30000) / D(140000)
+
+
+@pytest.mark.parametrize("carry,investment", [("1000", "0"), ("2000", "-1000")])
+def test_nonpositive_net_investment_keeps_profit_but_has_no_cumulative_rate(db, carry, investment):
+    opening(db, positions=[], cash={"CNY":"1000"}, historical_profit_cny=carry)
+    current = s.overview(db)["current"]
+    assert current["cumulative_profit"] == carry
+    assert current["cumulative_net_investment"] == investment
+    assert current["cumulative_profit_rate"] is None
 
 
 @pytest.mark.parametrize("carry", [None, "", "0"])
