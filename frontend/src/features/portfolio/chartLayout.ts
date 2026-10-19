@@ -55,13 +55,57 @@ export function chartTicks(values: Array<number | null>, rate: boolean) {
   return { min, max, ticks, label };
 }
 
-export function dateLayout(days: string[], availableWidth: number) {
+export type ChartWindow = { start: number; end: number };
+export const fullWindow: ChartWindow = { start: 0, end: 1 };
+
+export function clampWindow(start: number, end: number, minSpan = 0.01): ChartWindow {
+  const span = Math.max(minSpan, Math.min(1, end - start));
+  const left = Math.max(0, Math.min(1 - span, start));
+  return { start: left, end: left + span };
+}
+export function zoomWindow(view: ChartWindow, factor: number, anchor = 0.5, minSpan = 0.01): ChartWindow {
+  const span = Math.max(minSpan, Math.min(1, (view.end - view.start) * factor));
+  const pivot = view.start + (view.end - view.start) * anchor;
+  return clampWindow(pivot - span * anchor, pivot + span * (1 - anchor), minSpan);
+}
+export function resizeWindow(view: ChartWindow, edge: "start" | "end", value: number, minSpan: number): ChartWindow {
+  return edge === "start" ? { start: Math.max(0, Math.min(view.end - minSpan, value)), end: view.end }
+    : { start: view.start, end: Math.min(1, Math.max(view.start + minSpan, value)) };
+}
+
+export function observationSegments(points: ChartPoint[], values: Array<number | null>, cumulative: boolean) {
+  const segments: Array<{ from: number; to: number; missing: boolean }> = [];
+  let previous = -1;
+  for (let i = 0; i < points.length; i++) {
+    if (values[i] == null) continue;
+    if (previous >= 0 && (cumulative || points.slice(previous, i + 1).every(p => p.interval === points[previous].interval))) {
+      segments.push({ from: previous, to: i, missing: i > previous + 1 });
+    }
+    previous = i;
+  }
+  return segments;
+}
+
+export function dateLayout(days: string[], availableWidth: number, view: ChartWindow = fullWindow) {
   const sorted = [...new Set(days)].sort();
   const times = sorted.map(d => Date.parse(`${d}T00:00:00Z`));
   const first = times[0] || 0, last = times[times.length - 1] || first;
-  const gaps = times.slice(1).map((t, i) => t - times[i]);
-  const required = gaps.length ? (last - first) / Math.min(...gaps) * 40 : 0;
-  const width = Math.ceil(Math.max(availableWidth, 420, required + 164));
-  const x = (day: string) => first === last ? (width + 44) / 2 : 110 + (Date.parse(`${day}T00:00:00Z`) - first) / (last - first) * (width - 164);
-  return { width, x, days: sorted };
+  const minSpan = Math.min(1, 86400000 / (last - first || 86400000));
+  const range = clampWindow(view.start, view.end, minSpan);
+  const startTime = first + (last - first) * range.start, endTime = first + (last - first) * range.end;
+  const width = Math.max(220, Math.floor(availableWidth));
+  const x = (day: string) => first === last ? (width + 44) / 2 : 110 + (Date.parse(`${day}T00:00:00Z`) - startTime) / (endTime - startTime) * (width - 164);
+  const visible = sorted.filter((_, i) => times[i] >= startTime - 1 && times[i] <= endTime + 1);
+  const ticks: Array<{ day: string; label: string; row: number }> = [];
+  const edges = [-Infinity, -Infinity];
+  const lastDay = visible[visible.length - 1];
+  // Two rows retain useful date detail without widening the actual chart.
+  for (const day of visible) {
+    const label = axisDay(day, ticks[ticks.length - 1]?.day), half = label.length * 3.5 + 6;
+    const endSpace = day === lastDay ? Infinity : x(lastDay) - lastDay.length * 3.5 - 6;
+    const row = [0, 1].find(row => x(day) - half >= edges[row] && (row === 1 || x(day) + half < endSpace));
+    if (row == null) continue;
+    ticks.push({ day, label, row }); edges[row] = x(day) + half;
+  }
+  return { width, x, days: sorted, ticks, startTime, endTime, minSpan, range };
 }
