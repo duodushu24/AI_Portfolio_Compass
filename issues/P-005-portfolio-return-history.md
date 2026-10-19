@@ -6,7 +6,7 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-19"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025"]
 related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md", "CODE_CHANGE_LOG/C-021-historical-fx-selection.md", "CODE_CHANGE_LOG/C-022-quote-mark-display.md"]
 next: "验收历史汇率沿用后的人民币成本与清仓折算，以及后续手工更新和历史纠错"
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-19 [C-025](../CODE_CHANGE_LOG/C-025-profit-views-daily-chart.md) 新增累计/统计期金额与收益率四种视图，摘要与曲线同步；累计收益率按同一时点净投入计算，净投入非正不提供该比例。日曲线统一日期、明确零刻度，同日多记录保留并可展开，密集日期允许横向滚动。隔离验证与构建通过，未启动前后端或改写真实账目；用户验收待进行。
 
 2026-10-19 [C-024](../CODE_CHANGE_LOG/C-024-source-delete-cumulative-display.md) 按用户反馈恢复未建档旧持仓/成交的删除按钮；已建档派生持仓仍须纠正原账目。历史结转留空按零读取/保存，主指标固定累计盈亏，统计期收益率和曲线继续独立。完成隔离验证和构建，未启动前后端或改写真实账目；原验收边界不变。
 
