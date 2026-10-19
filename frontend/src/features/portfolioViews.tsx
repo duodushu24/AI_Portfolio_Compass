@@ -3190,8 +3190,8 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
 
   async function deletePosition(position: Position) {
     const confirmed = await requestConfirm({
-      title: "作废错误持仓记录",
-      body: `确认作废「${position.name || position.code}」这条错误记录？更早的记录不会自动恢复为持仓。卖出或清仓请记录新状态。`,
+      title: "删除持仓记录",
+      body: `确认删除「${position.name || position.code}」这条来源记录？删除不代表卖出，不产生现金或清仓收益；更早的记录不会自动恢复为持仓。`,
       confirmText: "删除",
       cancelText: "取消",
       tone: "danger",
@@ -3200,7 +3200,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
     try {
       const result = await api.deleteAccountPosition(position.account_id, position.code, position.snapshot_time);
       setOverview(result.overview);
-      setNotice("持仓已删除");
+      setNotice("持仓记录已删除");
       await onImported();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "持仓删除失败");
@@ -3560,7 +3560,7 @@ export function DataDetailTabs({
               />
             </div>
             {overview?.ledger_enrolled ? <><AssetTable assets={(overview.ledger_positions ?? []).filter(p => Number(p.quantity) > 0)} maskAssets={assetMaskEnabled} accountNames={Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]))} onOpen={setDetailCode} />
-              <small className="metadata-note">点击标的查看成交历史。已清仓查询独立列出历次退出；下方账户记账维护买卖、资金和市值。</small></> : <AccountPositionsTable readOnly positions={(overview?.positions ?? []).filter(p => p.quantity > 0)} onEdit={onEditPosition} onDelete={onDeletePosition} />}
+              <small className="metadata-note">点击标的查看成交历史。已清仓查询独立列出历次退出；下方账户记账维护买卖、资金和市值。</small></> : <AccountPositionsTable readOnly deletable positions={(overview?.positions ?? []).filter(p => p.quantity > 0)} onEdit={onEditPosition} onDelete={onDeletePosition} />}
           </div>
         </Tabs.TabPane>
         <Tabs.TabPane key="closed" title="已清仓查询"><ClosedPositions accountId={activeAccount.account_id} accounts={accounts} revision={overview} maskAssets={assetMaskEnabled} /></Tabs.TabPane>
@@ -3587,7 +3587,7 @@ export function DataDetailTabs({
                 onAdd={onAddDeal}
               />
             </div>
-            <AccountDealsTable deals={overview?.deals ?? []} onEdit={onEditDeal} onDelete={onDeleteDeal} readOnly={true} />
+            <AccountDealsTable deals={overview?.deals ?? []} onEdit={onEditDeal} onDelete={onDeleteDeal} readOnly deletable={overview?.ledger_enrolled === false} />
           </div>
         </Tabs.TabPane>
         {apiOnlySources.map((source) => (
@@ -4002,7 +4002,7 @@ export function positionFormToPayload(form: PositionSnapshotForm, original?: Pos
   };
 }
 
-export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = false }: { positions: Position[]; onEdit: (position: Position) => void; onDelete: (position: Position) => void; readOnly?: boolean }) {
+export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = false, deletable = !readOnly }: { positions: Position[]; onEdit: (position: Position) => void; onDelete: (position: Position) => void; readOnly?: boolean; deletable?: boolean }) {
   const accountPositionsTable = useResizableTableColumns({
     name: 170,
     code: 140,
@@ -4089,10 +4089,10 @@ export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = 
             ...accountPositionsTable.staticColumnProps("actions"),
             align: "center",
             className: "table-operation-column",
-            render: (_value, item: Position) => readOnly ? <small>由账户记账维护</small> : (
+            render: (_value, item: Position) => readOnly && !deletable ? <small>由账户记账维护</small> : (
               <div className="row-actions">
-                <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>
-                <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>
+                {!readOnly && <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>}
+                {deletable && <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>}
               </div>
             ),
           },
@@ -4323,7 +4323,7 @@ export function DealModal({ account, deal, onClose, onSaved, setNotice }: { acco
   );
 }
 
-export function AccountDealsTable({ deals, onEdit, onDelete, readOnly = false }: { deals: AccountDeal[]; onEdit: (deal: AccountDeal) => void; onDelete: (deal: AccountDeal) => void; readOnly?: boolean }) {
+export function AccountDealsTable({ deals, onEdit, onDelete, readOnly = false, deletable = !readOnly }: { deals: AccountDeal[]; onEdit: (deal: AccountDeal) => void; onDelete: (deal: AccountDeal) => void; readOnly?: boolean; deletable?: boolean }) {
   const dealsTable = useResizableTableColumns({
     deal_time: 190,
     code: 150,
@@ -4387,10 +4387,10 @@ export function AccountDealsTable({ deals, onEdit, onDelete, readOnly = false }:
             ...dealsTable.staticColumnProps("actions"),
             align: "center",
             className: "table-operation-column",
-            render: (_value, item: AccountDeal) => readOnly ? <small>账目与历史来源</small> : (
+            render: (_value, item: AccountDeal) => readOnly && !deletable ? <small>账目与历史来源</small> : (
               <div className="row-actions">
-                <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>
-                <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>
+                {!readOnly && <Button size="mini" onClick={() => onEdit(item)}>编辑</Button>}
+                {deletable && <Button size="mini" status="danger" onClick={() => onDelete(item)}>删除</Button>}
               </div>
             ),
           },

@@ -12,7 +12,7 @@ class ProfitCarry:
         carry = data.get("historical_profit_cny")
         self.accounts[account_id] = {
             "assets": value["total_assets"], "gain": gain,
-            "carry": number(carry) if carry is not None else None, "flows": ZERO,
+            "carry": number(carry) if carry not in (None, "") else ZERO, "flows": ZERO,
         }
 
     def flow(self, account_id, amount):

@@ -65,14 +65,12 @@ def test_carry_is_not_cash_cost_or_closed_trade_and_survives_full_exit(db):
     assert after["cash"] == before["cash"] and after["positions"] == before["positions"]
 
 
-def test_missing_is_not_zero_and_scope_transfer_baseline_are_independent(db):
+def test_blank_carry_defaults_to_zero_and_scope_transfer_baseline_are_independent(db):
     opening(db)
     s.save_opening(db, "b", dict(effective_at=T, positions=[], cash={"CNY":"0"}))
-    assert s.overview(db)["current"]["cumulative_profit"] is None
+    assert s.overview(db)["current"]["cumulative_profit"] == "25000"
     assert s.overview(db)["current"]["known_cumulative_profit"] == "25000"
-    row = s.overview(db, "b")["openings"][0]
-    row["historical_profit_cny"] = "0"
-    s.save_opening(db, "b", row, correction=True)
+    assert db.get(PortfolioOpening, "b").data["historical_profit_cny"] == "0"
     event(db, "transfer", 2, amount="1000", to_account_id="b", fees="2")
     assert D(s.overview(db)["current"]["cumulative_profit"]) == 24998
     event(db, "valuation", 3, performance_baseline="all", prices=[dict(ASSET, price="1010")])
@@ -81,10 +79,51 @@ def test_missing_is_not_zero_and_scope_transfer_baseline_are_independent(db):
 
 
 def test_unknown_cost_does_not_block_period_profit_or_become_known(db):
-    opening(db, positions=[dict(ASSET, quantity="100", price="1000")])
+    opening(db, historical_profit_cny=None, positions=[dict(ASSET, quantity="100", price="1000")])
     current = s.overview(db)["current"]
     assert current["cumulative_profit"] is None and current["profit"] == "0"
     assert current["account_profits"][0]["opening_holding_profit"] is None
+    assert current["account_profits"][0]["historical_profit_cny"] == "0"
+    s.save_opening(db, "b", dict(effective_at=T, positions=[], cash={"CNY":"0"}, historical_profit_cny="250"))
+    current = s.overview(db)["current"]
+    assert current["cumulative_profit"] is None and current["missing_cumulative_accounts"] == ["a"]
+    assert current["known_cumulative_profit"] == "250"
+
+
+@pytest.mark.parametrize("carry", [None, "", "0"])
+def test_empty_manual_carry_is_saved_as_zero_and_can_be_filled_or_cleared(db, carry):
+    data = opening(db, historical_profit_cny=carry)
+    before = deepcopy(s.overview(db)["current"])
+    assert before["cumulative_profit"] == "10000"
+    assert db.get(PortfolioOpening, "a").data["historical_profit_cny"] == "0"
+    data["historical_profit_cny"] = "15000"
+    s.save_opening(db, "a", data, correction=True)
+    filled = s.overview(db)["current"]
+    assert filled["cumulative_profit"] == "25000"
+    assert filled["cash"] == before["cash"] and filled["positions"] == before["positions"]
+    data["historical_profit_cny"] = ""
+    s.save_opening(db, "a", data, correction=True)
+    cleared = s.overview(db)["current"]
+    assert cleared["cumulative_profit"] == "10000"
+    assert cleared["cash"] == before["cash"] and cleared["positions"] == before["positions"]
+
+
+@pytest.mark.parametrize("carry", [None, "", "missing"])
+def test_legacy_empty_carry_is_read_as_zero_without_rewriting_opening(db, carry):
+    opening(db)
+    row = db.get(PortfolioOpening, "a")
+    data = deepcopy(row.data)
+    if carry == "missing":
+        data.pop("historical_profit_cny")
+    else:
+        data["historical_profit_cny"] = carry
+    row.data = data
+    db.commit()
+    current = s.overview(db)["current"]
+    assert current["cumulative_profit"] == "10000"
+    assert current["account_profits"][0]["historical_profit_cny"] == "0"
+    assert not current["missing_cumulative_accounts"]
+    assert db.get(PortfolioOpening, "a").data == data
 
 
 def workbook(*, cost="900", carry="15000", cash="20000"):
@@ -117,8 +156,10 @@ def test_excel_preview_atomic_confirmation_and_duplicate_correction_guard(db):
 def test_excel_negative_cost_blank_carry_and_missing_cash(db):
     preview=preview_import("excel","x.xlsx",workbook(cost="-1",carry=None),"a")
     assert preview["can_confirm"]
+    assert preview["opening_payload"]["historical_profit_cny"] == "0"
+    assert any("按 0 计入" in warning for warning in preview["warnings"])
     confirm_import(db,preview)
-    assert s.overview(db)["current"]["cumulative_profit"] is None
+    assert s.overview(db)["current"]["cumulative_profit"] == "100100"
     assert s.overview(db)["current"]["positions"][0]["average_cost"] == "-1"
     bad=preview_import("excel","x.xlsx",workbook(cash=None),"b")
     assert not bad["can_confirm"]

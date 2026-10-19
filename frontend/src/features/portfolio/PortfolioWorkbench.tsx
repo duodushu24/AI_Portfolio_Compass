@@ -64,7 +64,7 @@ export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSa
   const [mode, setMode] = useState("snapshot");
   const [at, setAt] = useState(local(initial.effective_at)), [included, setIncluded] = useState(initial.included), [includedAt, setIncludedAt] = useState(initial.included_at ? local(initial.included_at) : ""), [excludedAt, setExcludedAt] = useState(initial.excluded_at ? local(initial.excluded_at) : "");
   const [positions, setPositions] = useState(initial.positions), [cash, setCash] = useState<Record<string, string>>(initial.cash), [fx, setFx] = useState<Fields>(Object.fromEntries(Object.entries(initial.fx).flatMap(([c, v]) => [[c, v.rate], [`${c}_at`, local(v.at)]])));
-  const [historical, setHistorical] = useState(initial.historical_profit_cny ?? ""), [profitNote, setProfitNote] = useState(initial.historical_profit_note ?? "");
+  const [historical, setHistorical] = useState(initial.historical_profit_cny ?? "0"), [profitNote, setProfitNote] = useState(initial.historical_profit_note ?? "");
   const [error, setError] = useState(""), [saving, setSaving] = useState(false);
   const [checked, setChecked] = useState<{key: string; result: Portfolio} | null>(null);
   useEffect(() => { setChecked(null); }, [mode, at, included, includedAt, excludedAt, positions, cash, fx, historical, profitNote]);
@@ -72,7 +72,7 @@ export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSa
   const payload = (): Opening => ({ ...initial, effective_at: utc(at), included, included_at: includedAt ? utc(includedAt) : null, excluded_at: excludedAt ? utc(excludedAt) : null,
     positions: positions.map(p => ({ ...p, price_at: p.price_at || utc(at) })), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")),
     liabilities: mode === "snapshot" ? initial.liabilities || {} : {}, fx: fxPayload(fx, at, initial.fx),
-    historical_profit_cny: historical === "" ? null : historical, historical_profit_note: profitNote,
+    historical_profit_cny: historical === "" ? "0" : historical, historical_profit_note: profitNote,
     source: mode === "transactions" ? "首笔交易前的账户起点" : initial.source || "用户确认" });
   async function check() {
     setSaving(true); setError("");
@@ -99,8 +99,8 @@ export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSa
     <p>{mode === "transactions" ? "起点设在首笔交易之前，填写当时真实现金；也可从零现金开始，再记录首笔入金。保存后逐笔记录买卖，首次成交价自动作为初始报价，手续费进入摊薄成本。不要重复填写同一笔买入的期初持仓。" : "期初资产作为统计区间起点；原币摊薄成本用于持仓和卖出盈亏。已有持仓的价格填写当时报价，不以成本伪造市场价格。成本未知可以留空。"}</p>
     <div className="portfolio-fields"><Field title="期初实际时间" type="datetime-local" value={at} onChange={setAt} /><Field title="纳入组合时间（默认期初）" type="datetime-local" value={includedAt} onChange={setIncludedAt} /><Field title="移出组合时间（可留空）" type="datetime-local" value={excludedAt} onChange={setExcludedAt} /></div>
     <Checkbox checked={included} onChange={setIncluded}>纳入全账户收益范围（与账户同步启用开关无关）</Checkbox>
-    <div className="portfolio-fields"><Field title="历史结转盈亏（CNY，可留空）" type="number" value={historical} onChange={setHistorical} /><Field title="历史收益来源 / 统计期间" value={profitNote} onChange={setProfitNote} /></div>
-    <small>仅填写账户起点之前、未包含在期初持仓盈亏中的已实现盈亏；已在本系统记账的清仓或分红不重复结转。不增加现金、不改变持仓成本；无历史盈亏填 0，未知留空。</small>
+    <div className="portfolio-fields"><Field title="历史结转盈亏（CNY，留空按 0）" type="number" value={historical} onChange={setHistorical} /><Field title="历史收益来源 / 统计期间" value={profitNote} onChange={setProfitNote} /></div>
+    <small>仅填写账户起点之前、未包含在期初持仓盈亏中的已实现盈亏；已在本系统记账的清仓或分红不重复结转。不增加现金、不改变持仓成本；留空按 0 计入，以后可补填。</small>
     <fieldset><legend>期初各币种现金（实际可用余额）</legend><div className="portfolio-fields">{currencies.map(c => <Field key={c} title={`${c} 现金`} type="number" value={cash[c] ?? ""} onChange={v => setCash({ ...cash, [c]: v })} />)}</div></fieldset>
     <small>银行黄金请在名称中写明银行及产品，按克和元／克填写；不同产品分别添加，已有产品后续通过买卖维护。</small>
     {positions.map((p, i) => <fieldset key={i}><legend>期初持仓 {i + 1}</legend><div className="portfolio-fields portfolio-opening-row">
@@ -113,7 +113,7 @@ export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSa
     </div><Button status="danger" size="small" onClick={() => setPositions(rows => rows.filter((_, j) => i !== j))}>移除此期初行</Button></fieldset>)}
     {mode === "snapshot" && <Button onClick={() => setPositions(rows => [...rows, emptyAsset()])}>添加期初持仓</Button>}<FxFields values={fx} setValues={setFx} />
     <Button disabled={saving} onClick={check}>试算核对</Button>
-    {checked && <Alert type="info" content={<div>试算净资产 {numeric(checked.result.current?.total_assets ?? null)} CNY · 累计盈亏 {numeric(checked.result.current?.cumulative_profit ?? null)} CNY<p>保存前请核对资产、成本及历史结转。累计盈亏为空时，历史收益、期初成本或估值尚未补齐。</p>{checked.result.current?.issues.map(i => <p key={i}>{i}</p>)}</div>} />}
+    {checked && <Alert type="info" content={<div>试算净资产 {numeric(checked.result.current?.total_assets ?? null)} CNY · 累计盈亏 {numeric(checked.result.current?.cumulative_profit ?? null)} CNY<p>保存前请核对资产、成本及历史结转。累计盈亏为空时，请补齐持仓成本、估值或汇率。</p>{checked.result.current?.issues.map(i => <p key={i}>{i}</p>)}</div>} />}
     {confirmed && <Alert type="warning" content="纠错会重算建档后的成本、现金和收益。日常买卖请返回记录买卖；增减本金请记录资金。" />}
   </EditorShell>;
 }
@@ -124,7 +124,7 @@ function HistoryEditor({ initial, accounts, portfolio, onClose, onSaved }: { ini
   const [entries, setEntries] = useState<HistoryEntry[]>([]), [editing, setEditing] = useState<{ kind: string; index?: number } | null>(null);
   const [preview, setPreview] = useState<HistoryPreview | null>(null), [acknowledged, setAcknowledged] = useState(false), [error, setError] = useState(""), [saving, setSaving] = useState(false);
   useEffect(() => { setPreview(null); setAcknowledged(false); }, [at, cash, fx, entries, historical]);
-  const payload = () => ({ opening: { effective_at: utc(at), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")), fx: fxPayload(fx, at), historical_profit_cny: historical === "" ? null : historical }, records: entries, confirm_differences: acknowledged });
+  const payload = () => ({ opening: { effective_at: utc(at), cash: Object.fromEntries(Object.entries(cash).filter(([, v]) => v !== "")), fx: fxPayload(fx, at), historical_profit_cny: historical === "" ? "0" : historical }, records: entries, confirm_differences: acknowledged });
   async function calculate() {
     setSaving(true); setError("");
     try { setPreview(await portfolioApi.previewHistory(initial.account_id, payload())); }
@@ -144,7 +144,7 @@ function HistoryEditor({ initial, accounts, portfolio, onClose, onSaved }: { ini
     <p>原统计起点：{timeLabel(initial.effective_at)}。从更早的首笔交易前开始，填写当时现金并添加截至原起点的历史记录。试算不会保存；确认后统一替换起点并补录交易，原起点资料保留用于核对，不重复计入持仓。</p>
     <Field title="新起点实际时间" type="datetime-local" value={at} onChange={setAt} />
     <fieldset><legend>新起点现金（可全为零，再添加入金记录）</legend><div className="portfolio-fields">{currencies.map(c => <Field key={c} title={`${c} 现金`} type="number" value={cash[c]} onChange={v => setCash({ ...cash, [c]: v })} />)}</div></fieldset>
-    <Field title="新起点之前的历史结转盈亏（CNY，未知留空）" type="number" value={historical} onChange={setHistorical} />
+    <Field title="新起点之前的历史结转盈亏（CNY，留空按 0）" type="number" value={historical} onChange={setHistorical} />
     <small>向前补录后需重新核对结转金额，不能把已补录的历史收益再结转一次。</small>
     <FxFields values={fx} setValues={setFx} />
     <div className="inline-actions"><Button disabled={!at || saving} onClick={() => setEditing({ kind: "trade" })}>添加历史买卖</Button><Button disabled={!at || saving} onClick={() => setEditing({ kind: "funds" })}>添加历史资金</Button></div>

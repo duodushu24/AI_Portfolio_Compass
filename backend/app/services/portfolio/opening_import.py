@@ -12,7 +12,7 @@ from .performance import instant, iso, public
 
 def template_sheets():
     return [
-        ("账户起点", ["统计起始时间*", "历史结转盈亏（CNY）", "收益说明"], [None] * 3),
+        ("账户起点", ["统计起始时间*", "历史结转盈亏（CNY）", "收益说明"], [None, 0, None]),
         ("资金余额", ["币种*", "现金余额*", "兑人民币汇率", "汇率实际时间", "汇率来源", "汇率为估算"], [None] * 6),
         ("当前持仓", ["标的代码*", "标的名称", "市场*", "币种*", "资产类型", "数量*", "摊薄成本价", "人民币剩余成本", "价格", "持仓市值", "价格时间"], [None] * 11),
     ]
@@ -60,6 +60,9 @@ def preview(content, account_id, digest):
                            historical_profit_note=str(row.get("收益说明") or ""))
             if payload["historical_profit_cny"] not in (None, ""):
                 payload["historical_profit_cny"] = str(service.number(payload["historical_profit_cny"]))
+            else:
+                payload["historical_profit_cny"] = "0"
+                warnings.append("历史结转盈亏未填写，按 0 计入；可在确认前补填")
             for line, row in _rows(workbook["资金余额"]):
                 curr = service.currency(row.get("币种*"))
                 if curr in cash:
@@ -97,8 +100,6 @@ def preview(content, account_id, digest):
             service.quotes({"prices": [{**p, "at": p["price_at"]} for p in positions], "fx": fx}, instant(payload["effective_at"]))
         except (ValueError, KeyError, TypeError) as exc:
             errors.append(str(exc))
-        if payload.get("historical_profit_cny") in (None, ""):
-            warnings.append("未提供历史结转盈亏，将仅展示可计算的统计期盈亏")
         return {"import_kind": "opening", "source_name": "excel", "import_hash": digest, "account": {"account_id": account_id},
                 "opening_payload": public(payload), "positions": positions, "position_count": len(positions), "deals": [], "deal_count": 0,
                 "total_assets": 0, "market_value": 0, "cash": 0, "errors": errors, "warnings": warnings, "can_confirm": not errors}

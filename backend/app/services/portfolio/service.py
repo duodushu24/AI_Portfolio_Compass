@@ -170,7 +170,7 @@ def save_opening(db, account_id, payload, correction=False, commit=True):
     data = {"positions": positions, "cash": cash, "liabilities": liabilities, "cost_method": "diluted", "effective_at": iso(at),
             "source": str(payload.get("source") or "用户确认期初"), **quotes({"prices": prices, "fx": payload.get("fx", {})}, at)}
     carry = payload.get("historical_profit_cny", previous.data.get("historical_profit_cny") if previous else None)
-    data["historical_profit_cny"] = None if carry in (None, "") else str(number(carry))
+    data["historical_profit_cny"] = "0" if carry in (None, "") else str(number(carry))
     data["historical_profit_note"] = str(payload.get("historical_profit_note", previous.data.get("historical_profit_note", "") if previous else ""))
     if previous and previous.data.get("history_checkpoints"):
         data["history_checkpoints"] = deepcopy(previous.data["history_checkpoints"])
