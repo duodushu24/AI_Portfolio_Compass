@@ -89,7 +89,7 @@ def test_source_conflict_duplicate_and_missing_cash_fail():
         prepare(missing, statements)
 
 
-def test_explicit_valuation_does_not_fill_other_dates(db):
+def test_imported_ledger_carries_prior_valuation_but_never_uses_future_quotes(db):
     replace_ledger(db, "gf", prepare(*sources()), commit=True)
     service.save_event(db, {"account_id": "gf", "kind": "valuation", "effective_at": "2026-01-07T07:00:00Z",
         "data": {"prices": [{"code": "CN.510000", "market": "CN", "asset_type": "etf", "currency": "CNY",
@@ -99,18 +99,18 @@ def test_explicit_valuation_does_not_fill_other_dates(db):
     result = service.overview(db, "gf")
     assert result["current"]["total_assets"] == "935.0"
     assert result["current"]["positions"][0]["quote"]["at"] == "2026-01-07T07:00:00Z"
-    assert any("沿用" in i for i in result["current"]["issues"])
-    assert result["points"][-1]["total_assets"] is None
-    assert service.overview(db, "gf", "2026-01-08T07:00:00Z")["current"]["total_assets"] is None
+    assert not result["current"]["issues"]
+    assert result["points"][-1]["total_assets"] == "935.0"
+    assert service.overview(db, "gf", "2026-01-08T07:00:00Z")["current"]["total_assets"] == "935.0"
     assert service.overview(db, "gf", "2026-01-06T07:00:00Z")["current"]["positions"][0]["price"] is None
-    assert all(p["cumulative_return"] is None for p in result["points"])
-    assert len(result["current"]["performance_issues"]) == 1
+    assert result["current"]["cumulative_return"] is None  # Earlier funding really lacks valuations.
+    assert result["current"]["performance_needs"]
     # The legacy readers must show the same present values, without writing snapshots.
     assert service.projection_positions(db, "gf")[0].current_price == 7
     assert service.projection_accounts(db, "gf")[0].total_assets == 935
 
 
-def test_latest_genuine_quote_survives_estimate_and_trade_observations(db):
+def test_explicit_estimate_is_labelled_and_cross_account_trade_does_not_replace_it(db):
     replace_ledger(db, "gf", prepare(*sources()), commit=True)
     def quote(price, day, kind="price"):
         service.save_event(db, {"account_id": "gf", "kind": "valuation", "effective_at": f"2026-01-{day}T07:00:00Z",
@@ -118,11 +118,12 @@ def test_latest_genuine_quote_survives_estimate_and_trade_observations(db):
                 "unit": "share", "price": price, "at": f"2026-01-{day}T07:00:00Z", "price_kind": kind}]}})
     quote("7", "07")
     quote("90", "08", "estimate")
-    assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "7"
+    current = service.overview(db, "gf")["current"]
+    assert current["positions"][0]["price"] == "90" and current["quality"] == "estimated"
     service.save_opening(db, "other", {"effective_at": "2026-01-01T00:00:00Z", "cash": {"CNY": "500"}, "positions": []})
     service.save_trade(db, {"account_id": "other", "effective_at": "2026-01-09T07:00:00Z", "code": "CN.510000",
         "market": "CN", "asset_type": "etf", "currency": "CNY", "quantity": "1", "price": "100", "side": "BUY"})
-    assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "7"
+    assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "90"
     quote("8", "10")
     assert service.overview(db, "gf")["current"]["positions"][0]["price"] == "8"
     service.save_event(db, {"account_id": "gf", "kind": "share_credit", "effective_at": "2026-01-11T07:00:00Z",

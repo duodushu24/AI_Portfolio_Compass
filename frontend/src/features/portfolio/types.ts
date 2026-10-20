@@ -9,7 +9,13 @@ export type Asset = {
   closed_cycles: Array<{ cycle: number; opened_at: string; closed_at: string; realized: string | null; disposed_cost: string | null; return: string | null }>;
 };
 export type FxUse = { rate: string; at: string; source: string; carried?: boolean; is_estimate?: boolean; selection?: string };
+export type DataNeed = {
+  kind: "price" | "fx" | "cost" | "cost_cny"; account_id: string; at: string;
+  code?: string; name?: string; currency: string; unit?: string;
+  action: "valuation" | "opening"; context: "valuation" | "opening" | "cash_flow";
+};
 export type Point = {
+  data_needs?: DataNeed[]; performance_needs?: DataNeed[]; cumulative_needs?: DataNeed[];
   cumulative_profit_rate: string | null; cumulative_net_investment: string | null;
   cumulative_profit: string | null; known_cumulative_profit: string; missing_cumulative_accounts: string[];
   account_profits: Array<{account_id: string; historical_profit_cny: string | null; opening_holding_profit: string | null; opening_profit: string | null; profit_since_opening: string | null; cumulative_profit: string | null}>;
@@ -17,7 +23,7 @@ export type Point = {
   valuation_date?: string | null;
   fx_basis?: Record<string, FxUse>;
   total_assets: string | null; cash_value: string | null; market_value: string | null; profit: string | null;
-  opening_assets: string | null; net_flows: string;
+  opening_assets: string | null; net_flows: string | null;
   cumulative_return: string | null; nav: string | null; units: string; interval: number; ended: boolean;
   external_flow: string | null; quality: string; issues: string[]; performance_issues: string[];
   asset_returns: Record<string, string | null>;

@@ -40,7 +40,7 @@ def calculate(db, scope="all", until=None, *, compact=False):
     if cache_key not in cache:
         cache[cache_key] = replay(*facts(db), scope=scope,
             until=until or datetime.now(timezone.utc).replace(tzinfo=None),
-            latest_current=until is None, compact=compact)
+            compact=compact)
     return cache[cache_key]
 
 
@@ -569,7 +569,7 @@ def projection_positions(db, account_id=None, include_closed=False):
     for aid in ids:
         if aid not in result["ledger"].accounts:
             continue
-        current = result["prices"].value(result["ledger"], {aid}, at, latest=True)
+        current = result["prices"].value(result["ledger"], {aid}, at)
         total = current["total_assets"]
         for p in current["positions"]:
             if not include_closed and not p["quantity"]:
@@ -600,7 +600,7 @@ def projection_accounts(db, account_id=None):
         if account_id in (None, "all") and (o.included_at is None or o.included_at > now or o.excluded_at is not None and o.excluded_at <= now):
             continue
         if o.account_id in result["ledger"].accounts:
-            p = result["prices"].value(result["ledger"], {o.account_id}, at, latest=True)
+            p = result["prices"].value(result["ledger"], {o.account_id}, at)
             rows.append(AccountSnapshot(account_id=o.account_id, total_assets=float(p["total_assets"] or p["known_assets"]),
                 cash=float(p["cash_value"] or ZERO), market_value=float(p["market_value"] or ZERO),
                 raw_currency_values={"currency": "CNY", "ledger_quality": p["quality"], "ledger_total": public(p["total_assets"]), "ledger_cash": public(p["cash_value"]), "ledger_market": public(p["market_value"])},

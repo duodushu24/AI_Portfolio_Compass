@@ -50,46 +50,48 @@ def test_close_baseline_and_later_sales_dividends_do_not_rewrite_cost_or_cash(db
         "currency": "CNY", "asset_type": "etf", "side": "SELL", "quantity": "2", "price": "13"})
     s.save_event(db, {"account_id": "cn", "kind": "dividend", "effective_at": "2026-01-03T08:00:00Z",
         "data": {"code": "CN.TEST", "market": "CN", "currency": "CNY", "asset_type": "etf", "amount": "3"}})
-    assert s.overview(db)["points"][-1]["profit"] is None
+    assert D(s.overview(db)["points"][-1]["profit"]) == 5
     close(db, 4, cn="14", us="11", fx="6.9", estimate=True)
     current = s.overview(db)["current"]
     assert D(current["total_assets"]) == D("341.8")
     assert D(current["profit"]) == D("21.8") and D(current["cumulative_return"]) == D("21.8") / 320
     assert current["quality"] == "estimated" and any("估算汇率" in i for i in current["issues"])
     assert s.overview(db)["points"][0]["profit"] == "0"
-    # A later cash dividend changes current assets without making up a historical close.
+    # Carry the last recorded unit prices into subsequent observations.
     s.save_event(db, {"account_id": "cn", "kind": "interest", "effective_at": "2026-01-05T08:00:00Z", "data": {"amount": "1"}})
     result = s.overview(db)
     assert D(result["current"]["profit"]) == D("22.8")
-    assert result["points"][-1]["profit"] is None
+    assert D(result["points"][-1]["profit"]) == D("22.8")
     compact = s.overview(db, view="chart")
     assert compact["current"] == result["current"]
     assert compact["points"][0]["valuation_date"] == "2026-01-02"
     assert s.point_detail(db, "all", first["observed_at"], "valuation", "cn", baseline_id) == first
 
 
-def test_missing_funding_boundary_blocks_returns_until_boundary_is_supplied(db):
+def test_funding_boundary_uses_prior_quotes_without_missing_or_estimate_warning(db):
     close(db, 2, baseline=True)
     s.save_event(db, {"account_id": "cn", "kind": "deposit", "effective_at": "2026-01-03T08:00:00Z", "data": {"amount": "100"}})
     close(db, 4)
-    assert s.overview(db)["current"]["profit"] is None
+    current = s.overview(db)["current"]
+    assert D(current["profit"]) == 0 and D(current["cumulative_return"]) == 0
+    assert current["quality"] == "complete" and not current["performance_needs"]
     s.save_event(db, {"account_id": "cn", "kind": "valuation", "effective_at": "2026-01-03T08:00:00Z", "data": {
         "prices": [{"code": "CN.TEST", "market": "CN", "currency": "CNY", "asset_type": "etf", "price": "12"}]}})
     current = s.overview(db)["current"]
     assert D(current["profit"]) == 0 and D(current["cumulative_return"]) == 0
     assert D(current["net_flows"]) == 100
-    assert any("沿用" in i for i in current["performance_issues"])
+    assert not current["performance_issues"]
 
 
-def test_baseline_requires_complete_assets_and_void_restores_legacy_restriction(db):
+def test_baseline_requires_complete_assets_and_void_restores_unresolved_boundary(db):
     with pytest.raises(ValueError, match="收益基准需要"):
         s.save_event(db, {"account_id": "cn", "kind": "valuation", "effective_at": "2026-01-02T20:00:00Z", "data": {
             "performance_baseline": "all", "fx": {"USD": "7"}}})
-    assert all(p["cumulative_return"] is None for p in s.overview(db)["points"])
+    assert s.overview(db)["current"]["cumulative_return"] is None
     rid = close(db, 2, baseline=True)
     close(db, 4)
     s.void(db, "event", rid)
-    assert all(p["cumulative_return"] is None for p in s.overview(db)["points"])
+    assert s.overview(db)["current"]["cumulative_return"] is None
 
 
 def test_estimate_marker_and_actual_close_date_survive_storage(db):
@@ -102,7 +104,7 @@ def test_estimate_marker_and_actual_close_date_survive_storage(db):
     assert s.overview(db)["current"]["positions"][1]["fx"]["is_estimate"] is True
 
 
-def test_chart_keeps_each_trade_and_details_without_inventing_an_intraday_return(db):
+def test_chart_keeps_trades_and_values_them_with_last_recorded_price(db):
     close(db, 2, baseline=True)
     for hour, side in [(2, "BUY"), (3, "SELL")]:
         s.save_trade(db, {"account_id": "cn", "effective_at": f"2026-01-03T{hour:02}:00:00Z", "code": "CN.TEST", "market": "CN",
@@ -114,7 +116,8 @@ def test_chart_keeps_each_trade_and_details_without_inventing_an_intraday_return
     assert [p["transaction"]["side"] for p in trades] == ["BUY", "SELL"]
     for p in trades:
         assert p["transaction"]["code"] == "CN.TEST" and p["transaction"]["quantity"] == "1"
-        assert p["profit"] is None and p["cumulative_return"] is None
+        assert D(p["profit"]) == (-1 if p["transaction"]["side"] == "BUY" else 0)
+        assert p["cumulative_return"] is not None
         detail = s.point_detail(db, "all", p["observed_at"], "trade", p["account_id"], p["record_id"])
         assert detail["changes"]["before_quantity"] != detail["changes"]["after_quantity"]
     assert D(chart["points"][-1]["profit"]) == 0

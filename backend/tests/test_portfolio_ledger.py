@@ -104,7 +104,7 @@ def test_nav_deposit_44_percent_640_and_opening_floating_not_recounted(records):
         value(db, 3, "16.4")  # 1640 holdings + 1000 cash = 2640.
         p = current(db)
         assert abs(p["cumulative_return"] - D("0.44")) < D("1e-25") and p["profit"] == 640
-        assert p["performance_issues"]  # Deposit used a prior dated quote.
+        assert not p["performance_issues"]  # A prior recorded quote is a normal valuation input.
 
 
 def test_transfer_scope_membership_and_disabled_setting(records):
