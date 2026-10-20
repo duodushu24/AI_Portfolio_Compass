@@ -6,7 +6,7 @@ title: "统一账户起点导入与历史盈亏结转"
 status: active
 created: "2026-10-18"
 updated: "2026-10-20"
-changes: ["C-023", "C-024", "C-025", "C-026", "C-027", "C-028"]
+changes: ["C-023", "C-024", "C-025", "C-026", "C-027", "C-028", "C-029"]
 related: ["P-005", "P-007", "P-009"]
 evidence: ["issues/solutions/P-010/S-001-onboarding-profit-carry.md", "backend/app/services/portfolio/profit.py", "backend/app/services/portfolio/opening_import.py", "backend/tests/test_opening_profit.py", "CODE_CHANGE_LOG/C-023-onboarding-profit-carry.md"]
 next: "用户验收报价沿用、日期列与缺失补录，并继续核对四视图、起点导入及纠错删除"
@@ -17,6 +17,8 @@ tags: ["onboarding", "import", "profit", "product"]
 # P-010：统一账户起点导入与历史盈亏结转
 
 ## 当前进度
+
+2026-10-20 [C-029](../CODE_CHANGE_LOG/C-029-baseline-gap-recovery.md) 修复旧基准缺价使多个页面同时加载失败的回归。读取允许待补齐，保留原基准日期及报价/汇率补录入口；新基准保存仍严格校验，同刻后补报价能恢复原基准，不恢复成交报价。30 项服务、2 个接口场景、8 项离线页面检查及构建通过，真实账目只读重放/投影返回；没有改写真实数据或重启服务，实际使用待验收。
 
 2026-10-20 [C-028](../CODE_CHANGE_LOG/C-028-trades-do-not-update-market-prices.md) 处理交易导致市值更新日期变化：统一取消所有账户的成交价自动报价，包括首次买入。价格及原日期由独立估值维护，缺报价时提示补录；同时修复缺价持仓全部卖出后净值延迟恢复。41 项定向服务检查及构建通过，实际使用仍待验收，不启动服务或修改真实账目。
 
