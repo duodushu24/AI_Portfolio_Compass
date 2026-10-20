@@ -97,7 +97,7 @@ export function OpeningEditor({ initial, confirmed, onClose, onSaved, onImportSa
   return <EditorShell title={confirmed ? "账户起点 / 纠错" : "确认账户起点"} onClose={onClose} error={error} saving={saving} onSave={save}>
     {focusNeed && <Alert type="info" content={`请补齐期初${focusNeed.kind === "fx" ? ` ${focusNeed.currency}/CNY 汇率` : ` ${focusNeed.name || focusNeed.code} 的${focusNeed.kind === "price" ? "价格" : focusNeed.kind === "cost_cny" ? "历史人民币剩余成本" : "成本价"}`}，试算核对后保存。`} />}
     {!confirmed && <Field title="录入方式" value={mode} options={[{ value: "transactions", label: "从首笔交易开始" }, { value: "snapshot", label: "从当前资产开始" }]} onChange={value => { setMode(value); setPositions(value === "snapshot" ? initial.positions : []); setCash(value === "snapshot" ? initial.cash : {}); setFx(value === "snapshot" ? Object.fromEntries(Object.entries(initial.fx).map(([c, v]) => [c, v.rate])) : {}); }} />}
-    <p>{mode === "transactions" ? "起点设在首笔交易之前，填写当时真实现金；也可从零现金开始，再记录首笔入金。保存后逐笔记录买卖，首次成交价自动作为初始报价，手续费进入摊薄成本。不要重复填写同一笔买入的期初持仓。" : "期初资产作为统计区间起点；原币摊薄成本用于持仓和卖出盈亏。已有持仓的价格填写当时报价，不以成本伪造市场价格。成本未知可以留空。"}</p>
+    <p>{mode === "transactions" ? "起点设在首笔交易之前，填写当时真实现金；也可从零现金开始，再记录首笔入金。保存后逐笔记录买卖，手续费进入成本；成交不更新市值价，首次买入后请通过更新市值补充报价。不要重复填写同一笔买入的期初持仓。" : "期初资产作为统计区间起点；原币摊薄成本用于持仓和卖出盈亏。已有持仓的价格填写当时报价，不以成本伪造市场价格。成本未知可以留空。"}</p>
     <div className="portfolio-fields"><Field title="期初实际时间" type="datetime-local" value={at} onChange={setAt} /><Field title="纳入组合时间（默认期初）" type="datetime-local" value={includedAt} onChange={setIncludedAt} /><Field title="移出组合时间（可留空）" type="datetime-local" value={excludedAt} onChange={setExcludedAt} /></div>
     <Checkbox checked={included} onChange={setIncluded}>纳入全账户收益范围（与账户同步启用开关无关）</Checkbox>
     <div className="portfolio-fields"><Field title="历史结转盈亏（CNY，留空按 0）" type="number" value={historical} onChange={setHistorical} /><Field title="历史收益来源 / 统计期间" value={profitNote} onChange={setProfitNote} /></div>
@@ -227,8 +227,8 @@ export function EntryEditor({ accountId, accounts, kind, record, portfolio, onCl
       <Field title="成交金额（有明确清算依据才填；留空按数量 × 价格）" type="number" value={fields.gross_amount || ""} onChange={v => set("gross_amount", v)} />
       {fields.side === "SELL" && <>{!onStage && <Button onClick={() => { const a = assets.find(p => p.code === fields.code && p.currency === fields.currency && p.unit === fields.unit); if (a) set("quantity", a.quantity); }}>卖出全部当前持仓</Button>}<Field title="资金结算" value={fields.settlement} options={[{ value: "cash", label: "现金已到账" }, { value: "pending", label: "已确认赎回，资金待到账" }]} onChange={v => set("settlement", v)} /></>}
       {fields.side === "BUY" && <Field title="关联待确认申购（普通买入留空）" value={fields.pending_id || ""} options={[{ value: "", label: "普通现金买入" }, ...(context?.current?.pending ?? []).filter(p => p.kind === "subscription").map(p => ({ value: p.pending_id, label: `${p.pending_id} · ${p.amount} ${p.currency}` }))]} onChange={v => set("pending_id", v)} />}
-      {fields.asset_type === "precious_metal" && <p>请填写银行及产品名称；每个新产品自动分配独立标识。再次买卖请选择已有产品。资金按真实入金或转账记录，买入扣减账户现金。初始成交价不代表银行可赎回价，之后请更新银行报价。</p>}
-      <small>首次买入的成交价自动作为初始报价，费用进入摊薄成本；成交同时更新数量、摊薄成本和现金。分红再投资先记分红收入，再记录买入。</small>
+      {fields.asset_type === "precious_metal" && <p>请填写银行及产品名称；每个新产品自动分配独立标识。再次买卖请选择已有产品。资金按真实入金或转账记录，买入扣减账户现金；银行赎回 / 回购价或市值通过更新市值单独维护。</p>}
+      <small>买卖更新数量、成本和现金，不更新市值价及其日期；未有报价的标的请通过更新市值补录。分红再投资先记分红收入，再记录买入。</small>
     </> : kind === "valuation" ? <>
       <p>银行黄金优先填银行赎回 / 回购价，或银行展示市值，并核对报价来源与时间。只填本次更新的标的；其余沿用最近有效报价并标注日期。价格和市值任选一种。此报价也用于其他账户的同一标的、币种和单位。</p>
       {!prices.length && initialNeed?.kind !== "fx" && <p>此时点没有可更新持仓；仍可单独更新外币现金的汇率。</p>}

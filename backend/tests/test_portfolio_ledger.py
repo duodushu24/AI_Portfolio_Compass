@@ -156,6 +156,8 @@ def test_pending_subscription_redemption_dividend_and_expense(records):
         reserve = event(db, "subscription", 1, currency="CNY", amount="200")
         assert current(db)["total_assets"] == 1000 and current(db)["cash_value"] == 800
         buy = trade(db, day=2, quantity="100", price="1.99", fees="1", asset_type="fund", unit="fund_unit", pending_id=f"event:{reserve}")
+        assert current(db)["total_assets"] is None  # A confirmed buy does not supply a fund NAV.
+        value(db, 2, "1.99", asset_type="fund", unit="fund_unit")
         assert current(db)["total_assets"] == 999 and not current(db)["pending"]
         sell = trade(db, "SELL", "100", "2.2", day=3, fees="2", asset_type="fund", unit="fund_unit", settlement="pending")
         assert current(db)["total_assets"] == 1018 and current(db)["cash_value"] == 800
@@ -304,13 +306,13 @@ def test_import_reconciliation_deal_dedup_and_source_preservation(records):
         assert s.reconcile(db, "test-a")[0]["ledger_quantity"] == "10"
 
 
-def test_cross_account_trade_quote_adapter_price_and_no_projection_writes(records):
+def test_cross_account_trade_preserves_quote_adapter_can_update_without_projection_writes(records):
     client, sessions = records
     with sessions() as db:
         opening(db, positions=[asset(quantity="10", average_cost="8", price="10")])
         opening(db, "test-b", cash="500")
         trade(db, day=1, account="test-b", quantity="5", price="12")
-        assert current(db, "test-a")["positions"][0]["price"] == 12
+        assert current(db, "test-a")["positions"][0]["price"] == 10
         s.ingest_quotes(db, [{"code": "CN.TEST", "current_price": 14, "quote_time": T + timedelta(days=2), "provider": "synthetic-adapter"}], "mock")
         s.validate(db); db.commit()
         assert current(db, "test-a")["positions"][0]["price"] == 14
@@ -391,6 +393,8 @@ def test_realized_profit_includes_opening_gain_while_period_profit_starts_at_mar
             "cash": {"USD": "0"}, "fx": {"USD": {"rate": "7", "at": when()}}})
         trade(db, "SELL", "10", "17", day=1, fees="1", code="US.TEST", market="US", currency="USD", fx={"USD": {"rate": "7", "at": when(1)}})
         trade(db, quantity="20", price="4", day=2, fees="1", code="US.NEW", market="US", currency="USD", fx={"USD": {"rate": "7", "at": when(2)}})
+        assert current(db)["total_assets"] is None
+        value(db, 2, "4", code="US.NEW", market="US", currency="USD")
         p = current(db)
         sold = next(a for a in p["positions"] if a["code"] == "US.TEST")
         assert sold["realized"] == 69  # Average cost 100; net sale proceeds 169.
@@ -510,16 +514,18 @@ def test_reconciliation_full_snapshot_can_prove_absence_partial_cannot(records):
         assert diff["source_quantity"] == "0" and diff["ledger_quantity"] == "10"
 
 
-def test_zero_opening_first_deposit_and_buy_price_are_not_duplicate_positions(records):
+def test_zero_opening_first_deposit_and_buy_requires_separate_market_price(records):
     _, sessions = records
     with sessions() as db:
         opening(db, cash="0", day=-1)
         event(db, "deposit", 0, amount="1000", currency="CNY")
         trade(db, quantity="10", price="10", fees="1")
         p = current(db)["positions"][0]
-        assert p["price"] == 10 and p["average_cost"] == D("10.1")
-        assert p["quantity"] == 10 and p["floating"] == -1
-        assert current(db)["profit"] == -1 and current(db)["cash_value"] == 899
+        assert p["price"] is None and p["quote"] is None and p["average_cost"] == D("10.1")
+        assert p["quantity"] == 10 and p["floating"] is None
+        assert current(db)["profit"] is None and current(db)["cash_value"] == 899
+        value(db, 2, "10")
+        assert current(db)["profit"] == -1 and current(db)["positions"][0]["floating"] == -1
 
 
 def history_payload(**changes):

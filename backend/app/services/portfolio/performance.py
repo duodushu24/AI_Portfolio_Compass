@@ -68,23 +68,16 @@ class FxHistory:
 class Prices:
     def __init__(self):
         self.prices = {}
-        self.observations = {}
         self.fx = {"CNY": {"rate": "1", "at": None, "source": "本币"}}
 
     def update(self, data, at):
         for item in data.get("prices", []):
-            if item.get("price") is None:
+            if item.get("price") is None or item.get("valuation_origin") == "trade":
                 continue
             k = key(item)
             previous = self.prices.get(k)
             if not previous or instant(item["at"]) >= instant(previous["at"]):
                 self.prices[k] = deepcopy(item)
-            # Imported ledgers use saved market observations (including explicitly
-            # labelled estimates), never another account's execution price.
-            if item.get("valuation_origin") != "trade":
-                previous = self.observations.get(k)
-                if not previous or instant(item["at"]) >= instant(previous["at"]):
-                    self.observations[k] = deepcopy(item)
         for curr, item in data.get("fx", {}).items():
             previous = self.fx.get(curr)
             if curr != "CNY" and (not previous or instant(item["at"]) >= instant(previous["at"])):
@@ -119,7 +112,7 @@ class Prices:
         for account_id in sorted(accounts):
             book = ledger.accounts[account_id]
             for k, p in book["positions"].items():
-                quote = (self.observations if book.get("valuation_policy") == "explicit_only" else self.prices).get(k)
+                quote = self.prices.get(k)
                 # A partial update retains the last dated unit price, including for
                 # imported accounts. Never substitute a future quote or total value.
                 if quote and instant(quote["at"]) > at:
@@ -229,29 +222,22 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
         before_scope = set(included) if scope == "all" else {scope} & set(ledger.accounts)
         if kind == "opening":
             ledger.open(account_id, data)
-            prices.update(data, at)
-        elif kind == "valuation":
-            prices.update(data, at)
-        else:
+        # Execution prices are accounting facts, not closing prices or fund NAVs.
+        # Only explicit opening/valuation observations may update market prices.
+        if kind in {"opening", "valuation"}:
             prices.update(data, at)
         # A backdated observation can repair earlier transactions, but no rate
         # whose actual time is later than this event may enter its calculation.
         prices.fx = fx_history.at(at, data.get("fx"))
         if kind == "opening":
             profits.open(account_id, data, prices.value(ledger, {account_id}, at, include_cycles=False), iso(at))
-        # A trade price is a dated observation; it also values the same asset in other accounts.
-        if kind == "trade" and ledger.accounts[account_id].get("valuation_policy") != "explicit_only":
-            prices.update({"prices": [{**{n: data[n] for n in ("code", "currency", "unit")},
-                "price": data["price"], "at": iso(at), "source": data.get("source", "成交"), "valuation_origin": "trade", "price_kind": "nav" if data["asset_type"] == "fund" else "price"}]}, at)
         if kind == "split":
-            for cache in (prices.prices, prices.observations):
-                quote = cache.get(key(data))
-                if quote:
-                    cache[key(data)] = {**quote, "price": str(number(quote["price"]) / number(data["factor"])), "source": "原报价按拆分比例调整", "price_kind": "estimate"}
+            quote = prices.prices.get(key(data))
+            if quote:
+                prices.prices[key(data)] = {**quote, "price": str(number(quote["price"]) / number(data["factor"])), "source": "原报价按拆分比例调整", "price_kind": "estimate"}
         if kind == "share_credit":
             # Its ex-rights price cannot be inferred from the credited quantity.
             prices.prices.pop(key(data), None)
-            prices.observations.pop(key(data), None)
         before = prices.value(ledger, before_scope, at, include_cycles=False)
         before_assets = before["total_assets"]
         flow, changes = ZERO, None
@@ -266,7 +252,7 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
             # Cash + custody transfers are one fact with both sides applied atomically.
             if kind == "position_transfer":
                 p = ledger.accounts[account_id]["positions"].get(key(data))
-                quote = (prices.observations if ledger.accounts[account_id].get("valuation_policy") == "explicit_only" else prices.prices).get(key(data))
+                quote = prices.prices.get(key(data))
                 rate = prices.rate(data["currency"])
                 value = number(data["quantity"]) * number(quote["price"]) * rate if p and quote and rate is not None else None
                 delta = int(data["to_account_id"] in before_scope) - int(account_id in before_scope)
@@ -304,9 +290,7 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
         if not relevant:
             continue
         # Events outside this scope can still change shared quotes; only emit relevant points.
-        quoted = {key(i) for i in data.get("prices", [])}
-        if kind == "trade" and ledger.accounts[account_id].get("valuation_policy") != "explicit_only":
-            quoted.add(key(data))
+        quoted = {key(i) for i in data.get("prices", [])} if kind in {"opening", "valuation"} else set()
         if kind == "split":
             quoted.add(key(data))
         held = {k for aid in relevant for k, p in ledger.accounts[aid]["positions"].items() if p["quantity"]}
@@ -366,8 +350,10 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
                     raise ValueError("出金或范围移出超过账户净资产")
                 if abs(units) < Decimal("0.00000001"):
                     units = ZERO
-                if units > ZERO:
-                    last_nav = assets / units
+            # A fully sold unquoted position restores a known portfolio value.
+            # With no external flow, its prior missing price does not block NAV.
+            if units > ZERO and assets is not None:
+                last_nav = assets / units
         if base is None and missing_opening_at is not None:
             cumulative_issues.add("期初完整估值缺失；请补录期初时点报价/汇率或纠正期初，后续市值不能替代收益起点")
         if estimated_flow:

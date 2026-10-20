@@ -28,9 +28,6 @@ def db(tmp_path):
         db.add(Account(account_id="a", display_name="Sample account"))
         db.commit()
         s.save_opening(db, "a", {"effective_at": at(1), "cash": {"CNY": "100"}, "positions": [asset()]})
-        row = db.get(PortfolioOpening, "a")
-        row.data = {**row.data, "valuation_policy": "explicit_only"}
-        db.commit()
         yield db
     engine.dispose()
 
@@ -121,3 +118,86 @@ def test_explicit_estimate_is_available_but_keeps_estimate_identity(db):
     assert D(current["profit"]) == 10 and current["quality"] == "estimated"
     assert current["positions"][0]["quote"]["price_kind"] == "estimate"
     assert not current["data_needs"] and any("估算" in i for i in current["issues"])
+
+
+@pytest.mark.parametrize("policy", [None, "trade_observations", "explicit_only"])
+def test_buy_sell_correction_and_void_preserve_market_price_and_actual_date(db, policy):
+    if policy:
+        row = db.get(PortfolioOpening, "a")
+        row.data = {**row.data, "valuation_policy": policy}
+        db.commit()
+    trade_data = {**asset(), "account_id": "a", "effective_at": at(2),
+                  "side": "BUY", "quantity": "2", "price": "12", "fees": "1"}
+    buy_id = s.save_trade(db, trade_data)
+    current = s.overview(db)["current"]
+    position = current["positions"][0]
+    original_quote = deepcopy(position["quote"])
+    assert D(position["price"]) == 10 and original_quote["at"] == at(1)
+    assert D(position["quantity"]) == 7 and D(position["cost"]) == 65
+    assert D(position["market_value"]) == 70 and D(current["cash_value"]) == 75
+    assert D(current["profit"]) == -5
+    sell_id = s.save_trade(db, {**trade_data, "side": "SELL", "price": "14", "effective_at": at(3)})
+    current = s.overview(db)["current"]
+    position = current["positions"][0]
+    assert position["quote"] == original_quote and D(position["market_value"]) == 50
+    assert D(position["quantity"]) == 5 and D(position["cost"]) == 38
+    assert D(current["cash_value"]) == 102 and D(current["profit"]) == 2
+    event(db, 4, prices=[asset(price="12")])
+    refreshed = s.overview(db)["current"]["positions"][0]["quote"]
+    assert refreshed["at"] == at(4) and D(refreshed["price"]) == 12
+    s.save_trade(db, {**trade_data, "price": "13"}, buy_id)
+    current = s.overview(db)["current"]
+    assert current["positions"][0]["quote"] == refreshed and D(current["cash_value"]) == 100
+    s.void(db, "trade", sell_id)
+    current = s.overview(db)["current"]
+    assert current["positions"][0]["quote"] == refreshed
+    assert D(current["positions"][0]["quantity"]) == 7 and D(current["cash_value"]) == 73
+    early = s.overview(db, until=at(2))["current"]["positions"][0]
+    assert D(early["price"]) == 10 and early["quote"]["at"] == at(1)
+
+
+@pytest.mark.parametrize("asset_type,unit,code", [
+    ("stock", "share", "CN.NEW"), ("fund", "fund_unit", "CN.FUND"),
+    ("precious_metal", "gram", "CN.GOLD.SAMPLE"),
+])
+def test_first_buy_has_no_quote_until_separate_valuation(db, asset_type, unit, code):
+    new_asset = asset(code, asset_type=asset_type, unit=unit)
+    s.save_trade(db, {**new_asset, "account_id": "a", "effective_at": at(2),
+                      "side": "BUY", "quantity": "2", "price": "10"})
+    current = s.overview(db)["current"]
+    p = next(p for p in current["positions"] if p["code"] == code)
+    assert p["price"] is None and p["quote"] is None and p["market_value"] is None
+    assert D(p["quantity"]) == 2 and D(p["cost"]) == 20 and D(current["cash_value"]) == 80
+    assert current["total_assets"] is None and current["profit"] is None
+    assert any(n["kind"] == "price" and n["code"] == code and n["at"] == at(2) for n in current["data_needs"])
+    event(db, 3, prices=[{**new_asset, "price": "12"}])
+    current = s.overview(db)["current"]
+    p = next(p for p in current["positions"] if p["code"] == code)
+    assert D(p["market_value"]) == 24 and p["quote"]["at"] == at(3)
+    assert D(current["profit"]) == 4
+    assert next(p for p in s.overview(db, until=at(2))["current"]["positions"] if p["code"] == code)["quote"] is None
+
+
+def test_other_account_trade_does_not_change_shared_quote_or_emit_quote_point(db):
+    db.add(Account(account_id="b")); db.commit()
+    s.save_opening(db, "b", {"effective_at": at(1), "cash": {"CNY": "100"}, "positions": []})
+    before = s.overview(db, "a")
+    s.save_trade(db, {**asset(), "account_id": "b", "effective_at": at(2),
+                      "side": "BUY", "quantity": "2", "price": "15"})
+    after = s.overview(db, "a")
+    assert after["points"] == before["points"] and after["current"] == before["current"]
+    b = s.overview(db, "b")["current"]["positions"][0]
+    assert D(b["price"]) == 10 and b["quote"]["at"] == at(1)
+
+
+def test_full_sale_without_any_market_quote_restores_amount_and_return_immediately(db):
+    buy(db, 2)
+    assert s.overview(db)["current"]["total_assets"] is None
+    s.save_trade(db, {**asset("CN.TWO"), "account_id": "a", "effective_at": at(3),
+                      "side": "SELL", "quantity": "2", "price": "12"})
+    current = s.overview(db)["current"]
+    closed = next(p for p in current["positions"] if p["code"] == "CN.TWO")
+    assert closed["quote"] is None and closed["price"] is None and D(closed["realized"]) == 4
+    assert D(current["total_assets"]) == 154 and D(current["profit"]) == 4
+    assert abs(D(current["cumulative_return"]) - D(4) / 150) < D("1e-25")
+    assert not current["data_needs"]
