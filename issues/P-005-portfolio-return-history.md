@@ -6,7 +6,7 @@ title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
 updated: "2026-10-20"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025", "C-026", "C-027"]
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025", "C-026", "C-027", "C-028"]
 related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md", "CODE_CHANGE_LOG/C-021-historical-fx-selection.md", "CODE_CHANGE_LOG/C-022-quote-mark-display.md"]
 next: "验收历史汇率沿用后的人民币成本与清仓折算，以及后续手工更新和历史纠错"
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-20 [C-028](../CODE_CHANGE_LOG/C-028-trades-do-not-update-market-prices.md) 按用户要求分离成交价与市值价。手工与导入账户统一：所有买卖包括首次买入均不自动更新报价及日期；已有报价按交易后数量估值，无报价提示补录。缺价持仓全部卖出后净值立即恢复；41 项定向服务检查及构建通过，原始账目与报价不迁移，实际使用待验收。
 
 2026-10-20 [C-027](../CODE_CHANGE_LOG/C-027-valuation-carry-data-prompts.md) 统一当前与历史的最近有效报价规则，替代旧导入账户仅同刻报价才可用于历史估值的限制。部分更新继续使用原价格日期和当时数量；明确估算仍标注，未来报价不得倒填。金额与收益率分别判断，缺失有账户/标的/日期/字段和补录入口；当前持仓增加日期列、简化成本表头。52 项定向服务检查、构建及 18 项离线页面检查通过，实际账户验收仍待进行；不启动服务或改动真实账目。
 
@@ -47,7 +49,7 @@ P-001 的日记已获用户验收并关闭；本问题不启动 P-002 的 Agent 
 
 资产分散于多个账户，覆盖 A 股、港股、美股及场内/场外基金。目标是在本地系统记录全账户持仓、买卖、资金和价格，自动计算摊薄成本、现金、持仓盈亏、阶段清仓收益、账户总资产及累计组合收益。
 
-新账户默认从首笔交易前的现金开始，也可先设置零现金再录首笔入金；首次买入自动建立持仓、成本与报价。已有持仓仍可作为明确的统计起点，日常只记录买卖、资金变动和更新市值。已有账户需要追溯时使用“补录更早历史”，试算核对原起点后统一重建，避免旧期初与历史买入重复计入。主图统计已录入区间的全账户净值收益率和盈亏，起点由真实记录决定，不以软件建立日期为固定边界。
+新账户默认从首笔交易前的现金开始，也可先设置零现金再录首笔入金；首次买入自动建立持仓与成本，不生成市值报价。已有持仓仍可作为明确的统计起点，日常分别记录买卖、资金变动和更新市值，成交不改变市值价及其日期。已有账户需要追溯时使用“补录更早历史”，试算核对原起点后统一重建，避免旧期初与历史买入重复计入。主图统计已录入区间的全账户净值收益率和盈亏，起点由真实记录决定，不以软件建立日期为固定边界。
 
 手工市价/净值或标的市值更新即可形成真实观察点，支持任意时点、同日多次和历史补录；记录实际报价时间。先完成手工闭环，稳定自动行情及 K 线不作前置。周复盘只是使用习惯，不固定记录间隔。
 
