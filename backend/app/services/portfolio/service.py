@@ -395,6 +395,10 @@ def save_event(db, payload, record_id=None, commit=True):
         row.account_id, row.kind, row.effective_at, row.data, row.is_void = account_id, kind, at, data, False
         db.add(row)
         db.flush()
+        if kind == "valuation" and data.get("performance_baseline") == "all":
+            # Reject an incomplete baseline being written, while existing
+            # incomplete baselines remain readable and can receive backfills.
+            replay(*facts(db), strict_baselines={row.id})
         return row.id
     return transaction(db, write) if commit else write()
 

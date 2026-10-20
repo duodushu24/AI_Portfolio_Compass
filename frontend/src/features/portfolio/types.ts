@@ -12,9 +12,11 @@ export type FxUse = { rate: string; at: string; source: string; carried?: boolea
 export type DataNeed = {
   kind: "price" | "fx" | "cost" | "cost_cny"; account_id: string; at: string;
   code?: string; name?: string; currency: string; unit?: string;
-  action: "valuation" | "opening"; context: "valuation" | "opening" | "cash_flow";
+  action: "valuation" | "opening"; context: "valuation" | "opening" | "cash_flow" | "baseline";
+  valuation_date?: string | null;
 };
 export type Point = {
+  performance_baseline?: { at: string; valuation_date: string | null; record_id: number; status: "complete" | "missing" | "nonpositive" } | null;
   data_needs?: DataNeed[]; performance_needs?: DataNeed[]; cumulative_needs?: DataNeed[];
   cumulative_profit_rate: string | null; cumulative_net_investment: string | null;
   cumulative_profit: string | null; known_cumulative_profit: string; missing_cumulative_accounts: string[];

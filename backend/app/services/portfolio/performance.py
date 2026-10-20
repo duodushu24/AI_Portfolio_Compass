@@ -189,7 +189,7 @@ class Prices:
                 "data_needs": needs, "quality": "missing" if not complete else "estimated" if estimated else "complete"}
 
 
-def replay(openings, deals, events, scope="all", until=None, *, compact=False):
+def replay(openings, deals, events, scope="all", until=None, *, compact=False, strict_baselines=()):
     """Deterministic replay; no current FX cache, network, or edits to source rows."""
     timeline = []
     for row in openings:
@@ -206,6 +206,13 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
         if not row.is_void:
             timeline.append((row.effective_at, 1 if row.kind == "valuation" else 3, f"event:{row.id:012}", row.kind, row.account_id, row.data, row.id))
     timeline.sort(key=lambda e: (instant(e[0]), e[1], e[2]))
+    # Quotes backfilled at the exact baseline instant must be available even
+    # when their record ID sorts after the original baseline record.
+    baseline_times = {instant(e[0]) for e in timeline if e[3] == "valuation" and e[5].get("performance_baseline") == "all"}
+    baseline_batches, loaded_batches = {}, set()
+    for entry in timeline:
+        if entry[3] == "valuation" and instant(entry[0]) in baseline_times:
+            baseline_batches.setdefault(instant(entry[0]), []).append(entry[5])
     fx_history = FxHistory(timeline)
     ledger, prices, included, points = Ledger(), Prices(), set(), []
     profits = ProfitCarry()
@@ -213,6 +220,7 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
     interval, valid, cumulative_issues = 0, True, set()
     flow_total_valid, performance_needs = True, []
     missing_opening_at = None
+    pending_baseline, baseline_info = False, None
     last_at = None
     for timestamp, _, _, kind, account_id, data, record_id in timeline:
         at = instant(timestamp)
@@ -224,7 +232,12 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
             ledger.open(account_id, data)
         # Execution prices are accounting facts, not closing prices or fund NAVs.
         # Only explicit opening/valuation observations may update market prices.
-        if kind in {"opening", "valuation"}:
+        if kind == "valuation" and at in baseline_batches:
+            if at not in loaded_batches:
+                for valuation in baseline_batches[at]:
+                    prices.update(valuation, at)
+                loaded_batches.add(at)
+        elif kind in {"opening", "valuation"}:
             prices.update(data, at)
         # A backdated observation can repair earlier transactions, but no rate
         # whose actual time is later than this event may enter its calculation.
@@ -301,17 +314,28 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
         estimated_flow = flow not in (None, ZERO) and before["quality"] == "estimated" and base is not None
         is_baseline = scope == "all" and kind == "valuation" and data.get("performance_baseline") == "all"
         if is_baseline:
-            if assets is None or assets <= ZERO:
+            pending_baseline = assets is None or assets <= ZERO
+            if pending_baseline and record_id in strict_baselines:
                 raise ValueError("收益基准需要全部纳入账户的完整报价、汇率及正净资产")
-            base, units, net_flows, last_nav = assets, assets, ZERO, Decimal(1)
-            interval, valid, missing_opening_at = 1, True, None
+            baseline_info = {"at": iso(at), "valuation_date": data.get("valuation_date"),
+                             "record_id": record_id, "status": "missing" if assets is None else "nonpositive" if assets <= ZERO else "complete"}
+            base, units, net_flows, last_nav = (None, ZERO, ZERO, None) if pending_baseline else (assets, assets, ZERO, Decimal(1))
+            interval, valid, missing_opening_at = 1, not pending_baseline, None
             flow_total_valid, performance_needs = True, []
             cumulative_issues.clear()
             points.clear()
-        if base is None and assets is None and missing_opening_at is None:
+            if pending_baseline:
+                performance_needs = [{**n, "context": "baseline", "valuation_date": data.get("valuation_date")} for n in result["data_needs"]]
+                cumulative_issues.add("收益基准估值待补齐；请补录基准日的报价或汇率" if assets is None else "收益基准净资产须为正；请核对基准时点资金或重新设置基准")
+        if pending_baseline and not is_baseline:
+            if flow is None:
+                flow_total_valid = False
+            else:
+                net_flows += flow
+        if not pending_baseline and base is None and assets is None and missing_opening_at is None:
             missing_opening_at = at
             performance_needs = [{**n, "context": "opening", "action": "opening"} for n in result["data_needs"]]
-        if base is None and assets is not None and assets > ZERO and (missing_opening_at is None or at == missing_opening_at):
+        if not pending_baseline and base is None and assets is not None and assets > ZERO and (missing_opening_at is None or at == missing_opening_at):
             base, units, net_flows, last_nav = assets, assets, ZERO, Decimal(1)
             interval += 1
             valid = True
@@ -360,12 +384,13 @@ def replay(openings, deals, events, scope="all", until=None, *, compact=False):
             cumulative_issues.add("部分资金进出时使用了明确标记的估算值，统计期收益率含估算")
         if any(fx.get("is_estimate") for fx in prices.fx.values()):
             cumulative_issues.add("历史观察包含用户授权的估算汇率；相关日期的人民币收益为估算值")
-        if not valid:
+        if not valid and not pending_baseline:
             cumulative_issues.add("资金进出时缺少估值，统计期收益率待补齐" if performance_needs else "资金进出前净资产非正，无法计算统计期收益率")
         result.update(observed_at=iso(at), account_ids=sorted(selected), event_type=kind,
             fx_basis={curr: deepcopy(item) for curr, item in prices.fx.items() if curr != "CNY" and curr in held_currencies},
             valuation_date=data.get("valuation_date") if kind == "valuation" else None,
             record_id=record_id, account_id=account_id, data=data, changes=changes,
+            performance_baseline=deepcopy(baseline_info),
             units=units, nav=last_nav if valid and assets is not None else None,
             cumulative_return=last_nav - 1 if valid and last_nav is not None and assets is not None else None,
             profit=assets - base - net_flows if base is not None and assets is not None and flow_total_valid else None,
