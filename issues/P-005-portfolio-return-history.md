@@ -5,8 +5,8 @@ id: P-005
 title: "全账户持仓记录与收益统计"
 status: active
 created: "2026-10-13"
-updated: "2026-10-20"
-changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025", "C-026", "C-027", "C-028", "C-029"]
+updated: "2026-10-26"
+changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025", "C-026", "C-027", "C-028", "C-029", "C-030"]
 related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md", "CODE_CHANGE_LOG/C-021-historical-fx-selection.md", "CODE_CHANGE_LOG/C-022-quote-mark-display.md"]
 next: "验收历史汇率沿用后的人民币成本与清仓折算，以及后续手工更新和历史纠错"
@@ -17,6 +17,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-26 [C-030](../CODE_CHANGE_LOG/C-030-source-records-security-names.md) 将持仓来源资料纳入可查看/停用/删除恢复的抽屉，账目核对改为主动触发，未知标的/单位不再误报零持仓。名称直接修改已有字段并跨账户同步，金额及日期不变；不新增别名存储。定向内存/离线页面检查及构建通过，正式使用仍待验收；本轮未修改真实账目或启动服务，不代表既有回归整组通过。
 
 2026-10-20 [C-029](../CODE_CHANGE_LOG/C-029-baseline-gap-recovery.md) 将旧收益基准的缺价/汇率或非正净资产转为读取时的待补齐状态，避免全站读取异常；新建/纠错基准依旧严格校验。保留原基准与独立累计计算，同刻补录可修复，未来报价不替代原起点。32 项定向服务/接口场景、8 项离线页面检查及构建通过，真实账目只读重放/投影返回；运行中页面仍待用户验收，不启动或重启服务。
 
