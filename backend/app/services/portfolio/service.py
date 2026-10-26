@@ -627,7 +627,9 @@ def ingest_quotes(db, rows, source):
     for row in rows:
         at = instant(row["quote_time"])
         for account_id, book in result["ledger"].accounts.items():
-            related = [p for p in book["positions"].values() if p["code"] == row["code"] and p["asset_type"] != "precious_metal"]
+            related = [p for p in book["positions"].values() if p["code"] == row["code"] and p["asset_type"] != "precious_metal"
+                       and (not row.get("currency") or row["currency"] == p["currency"])
+                       and (not row.get("unit") or row["unit"] == p["unit"])]
             if not related:
                 continue
             # A market quote has a single currency/unit; do not guess across ambiguous assets.
@@ -635,7 +637,7 @@ def ingest_quotes(db, rows, source):
                 raise ValueError("同一行情代码对应不同币种/单位，需确认来源报价口径")
             p = related[0]
             grouped.setdefault((account_id, observed_at), []).append({**{n: p[n] for n in ("code", "name", "market", "asset_type", "currency", "unit")},
-                "price": str(row["current_price"]), "at": iso(at), "source": str(row.get("provider") or source), "price_kind": "estimate" if row.get("is_delayed") else "price"})
+                "price": str(row["current_price"]), "at": iso(at), "source": str(row.get("provider") or source), "price_kind": row.get("price_kind") or "price"})
             break  # One shared quote, not duplicate per account.
     for (account_id, at), prices in grouped.items():
         save_event(db, {"account_id": account_id, "kind": "valuation", "effective_at": at,

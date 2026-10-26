@@ -56,7 +56,10 @@ def test_refresh_trade_reviews_prefers_daily_kline_close(monkeypatch):
         def fetch_daily_close_after(self, code, target):
             return 110 if target.date() == (now + timedelta(days=5)).date() else 103
 
-    monkeypatch.setattr("app.services.trade_review.FutuReadOnlyAdapter", FakeAdapter)
+    from types import SimpleNamespace
+    from app.services import data_sources, providers
+    monkeypatch.setattr(providers, "_futu_factory", lambda _: SimpleNamespace(adapter=FakeAdapter()))
+    data_sources.save_config(db, "futu", {"enabled": True})
 
     refresh_trade_reviews(db, fetch_market_data=True)
     db.commit()

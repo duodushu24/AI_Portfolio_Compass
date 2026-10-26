@@ -6,6 +6,7 @@ import { PageContainer } from "./components/pro";
 import { DiaryLeaveGuard, ReviewWorkspace } from "./features/DiaryPage";
 import { DATA_CHANGED, invalidateReads } from "./requestCache";
 import { ReturnHistoryPanel } from "./features/ReturnHistoryPanel";
+import { OPEN_DATA_SOURCES } from "./features/dataSources/api";
 import {
   AccountDataPage,
   AdvancedSettingsPage,
@@ -66,6 +67,7 @@ function App() {
   const diaryLeaveGuard = useRef<DiaryLeaveGuard | null>(null);
   const registerDiaryLeaveGuard = useCallback((guard: DiaryLeaveGuard | null) => { diaryLeaveGuard.current = guard; }, []);
   const canLeaveCurrent = useCallback(() => diaryLeaveGuard.current?.() ?? true, []);
+  useEffect(() => {const open = () => {if (canLeaveCurrent()) setActive("AI与高级设置");}; window.addEventListener(OPEN_DATA_SOURCES, open); return () => window.removeEventListener(OPEN_DATA_SOURCES, open);}, [canLeaveCurrent]);
   setAssetMaskEnabled(maskAssets);
 
   const scopedPositions = useMemo(() => scopePositions(positions, selectedAccount), [positions, selectedAccount]);

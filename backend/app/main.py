@@ -15,7 +15,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.adapters.futu_adapter import FutuReadOnlyAdapter
 from app.config import get_settings
 from app.database import engine, get_db, init_db, SessionLocal
 from app.demo_data import ensure_demo_data
@@ -24,6 +23,8 @@ from app.schemas import DealSaveRequest, DeleteLocalDataRequest, LayerOverrideRe
 from app.models import PortfolioOpening, PortfolioEvent
 from app.services.portfolio import service as portfolio_service
 from app.routers.portfolio import router as portfolio_router
+from app.routers.data_sources import router as data_sources_router
+from app.services import data_sources
 from app.services.sync import (
     delete_local_data,
     latest_account_snapshots,
@@ -91,6 +92,7 @@ app.include_router(diary_router)
 app.include_router(diary_analysis_router)
 app.include_router(return_router)
 app.include_router(portfolio_router)
+app.include_router(data_sources_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -124,13 +126,16 @@ def health(db: Session = Depends(get_db)) -> dict:
     except Exception as exc:
         db_status = f"error: {str(exc)[:120]}"
 
-    connected, opend_status = (False, "演示工作区不连接真实账户") if demo_mode else _opend_health_with_timeout()
+    futu_provider = provider_registry().get("futu")
+    futu_values = data_sources.config(db, futu_provider)
+    futu_enabled = bool(futu_values["enabled"])
+    connected, opend_status = (False, "演示工作区不连接真实账户") if demo_mode else (False, "未启用，可在数据源中选配") if not futu_enabled else _opend_health_with_timeout(futu_values)
     futu_accounts = 0
     futu_account_access = False
     futu_account_message = "OpenD 未连接"
     if connected:
         try:
-            futu_account_access, futu_accounts, futu_account_message = FutuReadOnlyAdapter().account_access()
+            futu_account_access, futu_accounts, futu_account_message = futu_provider.factory(futu_values).adapter.account_access()
         except Exception as exc:  # pragma: no cover - depends on local OpenD
             futu_account_message = str(exc)[:160]
     local_counts = {
@@ -145,8 +150,9 @@ def health(db: Session = Depends(get_db)) -> dict:
         "database": db_status,
         "opend": "connected" if connected else opend_status,
         "futu": {
-            "host": settings.futu_host,
-            "port": settings.futu_port,
+            "enabled": futu_enabled,
+            "host": futu_values["host"],
+            "port": futu_values["port"],
             "opend_connected": connected,
             "account_access": futu_account_access,
             "account_count": futu_accounts,
@@ -902,62 +908,25 @@ def check_account_data_provider(account_id: str, payload: dict = Body(default_fa
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    data_type = str(payload.get("data_type") or "quote").strip().lower()
-    raw_market = str(payload.get("market") or "").strip()
+    data_type = str(payload.get("data_type") or "quote")
     positions = latest_positions(db, account_id)
     markets = _account_data_markets(account, positions)
-    market = normalize_market(raw_market) if raw_market else (markets[0] if markets else "US")
-    registry = provider_registry()
-    provider_name = str(payload.get("provider") or "").strip().lower()
-    preferred_provider = _account_data_provider_preference(account, data_type)
-    requested_provider = provider_name or preferred_provider
-    provider = registry.get(requested_provider) if requested_provider else None
-    if provider and not _provider_supports(provider, data_type, market):
-        status = "unsupported"
-        message = "当前 provider 不支持该市场或数据类型"
-        state_key = f"{account_id}:{provider.name}:{data_type}:{market}"
-        mark_source_state(db, state_key, status, message, 0, account_id=account_id, provider=provider.name, data_type=data_type, market=market)
-        db.commit()
-        return {
-            "provider": provider.name,
-            "provider_label": provider.label,
-            "data_type": data_type,
-            "market": market,
-            "status": status,
-            "message": message,
-            "checked_at": datetime.now(timezone.utc),
-            "license_note": provider.license_note,
-            "provider_states": _account_provider_states(db, account, markets),
-        }
-    provider = provider or registry.choose(data_type=data_type, market=market, broker_provider=_account_broker_provider(account))
+    market = normalize_market(payload.get("market") or (markets[0] if markets else "CN"))
+    explicit = payload.get("provider") or _account_data_provider_preference(account, data_type)
+    provider = data_sources.choose(db, data_type, market, explicit)
     if not provider:
-        raise HTTPException(status_code=400, detail="Unsupported provider for this market and data type")
-    health = provider.health()
-    status = "available" if health.status in {"available", "configured"} else health.status
-    state_key = f"{account_id}:{provider.name}:{data_type}:{market}"
-    mark_source_state(
-        db,
-        state_key,
-        status,
-        health.message,
-        0,
-        account_id=account_id,
-        provider=provider.name,
-        data_type=data_type,
-        market=market,
-    )
+        raise HTTPException(400, "该市场或类型暂不支持自动获取，可手动更新")
+    try:
+        result = data_sources.probe(db, provider.name, data_type, market)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    mark_source_state(db, f"{account_id}:{provider.name}:{data_type}:{market}", result["status"], result["message"], 0,
+                      account_id=account_id, provider=provider.name, data_type=data_type, market=market)
     db.commit()
-    return {
-        "provider": provider.name,
-        "provider_label": provider.label,
-        "data_type": data_type,
-        "market": market,
-        "status": status,
-        "message": health.message,
-        "checked_at": health.checked_at,
-        "license_note": provider.license_note,
-        "provider_states": _account_provider_states(db, account, markets),
-    }
+    return {**result, "provider": provider.name, "provider_label": provider.label, "data_type": data_type,
+            "market": market, "license_note": provider.license_note,
+            "provider_states": _account_provider_states(db, account, markets)}
+
 
 
 @app.post("/api/data/accounts/{account_id}/market-data/pull")
@@ -1441,9 +1410,10 @@ def _account_provider_states(db: Session, account: Account, markets: list[str]) 
         markets,
         getattr(account, "market_data_provider", ""),
         getattr(account, "news_data_provider", ""),
+        db=db,
     ):
         stored = stored_rows.get((item["data_type"], item["market"], item["provider"]))
-        if stored:
+        if stored and item["status"] == "configured":
             rows.append(
                 {
                     **item,
@@ -1994,10 +1964,10 @@ def _decision_card_state(positions, cards) -> dict:
     }
 
 
-def _opend_health_with_timeout() -> tuple[bool, str]:
+def _opend_health_with_timeout(config=None) -> tuple[bool, str]:
     settings = get_settings()
     try:
-        with socket.create_connection((settings.futu_host, settings.futu_port), timeout=0.4):
+        with socket.create_connection(((config or {}).get("host", settings.futu_host), (config or {}).get("port", settings.futu_port)), timeout=0.4):
             return True, "connected"
     except OSError as exc:
         return False, f"OpenD 未连接：{str(exc)[:80]}"

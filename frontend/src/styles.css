@@ -4219,3 +4219,5 @@ body[arco-theme='dark'] .markdown-table tbody tr:nth-child(even) td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.source-provider-card { padding: 20px; border: 1px solid var(--color-border-2); border-radius: 8px; }
+.source-provider-card .inline-actions { justify-content: flex-start; gap: 16px; }

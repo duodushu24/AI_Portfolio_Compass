@@ -27,6 +27,7 @@ export type HealthStatus = {
   demo_mode?: boolean;
   workspace?: "formal" | "demo";
   futu?: {
+    enabled?: boolean;
     host: string;
     port: number;
     opend_connected: boolean;

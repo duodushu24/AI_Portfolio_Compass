@@ -132,14 +132,13 @@ def get_watchlist(db: Session, account_id: str, args: dict[str, Any], state: dic
     return {"status": "ok", "items": _context(db, account_id, state).get("watchlist", [])[:limit]}
 
 
-FUTU_QUOTE_PREFIXES = {"US", "HK", "SH", "SZ", "SG", "MY", "JP", "CC"}
 
 
 def get_latest_quotes(db: Session, account_id: str, args: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     codes = _requested_codes(args, state)
     if not codes:
         codes = [item["code"] for item in _context(db, account_id, state).get("position_exposures", [])[:12]]
-    quote_codes = _futu_quote_codes(codes)
+    quote_codes = _market_codes(codes)
     unsupported_codes = [code for code in codes if code not in quote_codes]
     rows = list(db.scalars(select(QuoteSummary).where(QuoteSummary.code.in_(quote_codes)).order_by(QuoteSummary.quote_time.desc()).limit(200)).all())
     seen = set()
@@ -148,7 +147,7 @@ def get_latest_quotes(db: Session, account_id: str, args: dict[str, Any], state:
         if row.code in seen:
             continue
         seen.add(row.code)
-        by_code[row.code] = _quote_payload(row.code, row.current_price, row.change_ratio, row.volume, row.quote_time, "local_cache")
+        by_code[row.code] = {**_quote_payload(row.code, row.current_price, row.change_ratio, row.volume, row.quote_time, row.provider), **(row.metadata_json or {})}
 
     found = set(by_code)
     missing_codes = [code for code in quote_codes if code not in found]
@@ -170,7 +169,8 @@ def get_recent_news(db: Session, account_id: str, args: dict[str, Any], state: d
         stmt = stmt.where(NewsItem.code.in_(codes))
     rows = list(db.scalars(stmt).all())
     return {
-        "status": "ok",
+        "status": "ok" if rows else "empty",
+        "message": "" if rows else "本地暂无匹配新闻，不能据此判断没有相关事件",
         "items": [
             {
                 "code": row.code,
@@ -178,6 +178,8 @@ def get_recent_news(db: Session, account_id: str, args: dict[str, Any], state: d
                 "source": row.source,
                 "publish_time": row.publish_time.isoformat() if row.publish_time else None,
                 "url": row.url,
+                "provider": row.provider,
+                "fetched_at": row.fetched_at.isoformat() if row.fetched_at else None,
             }
             for row in rows
         ],
@@ -189,7 +191,7 @@ def get_kline_summary(db: Session, account_id: str, args: dict[str, Any], state:
     if not codes:
         codes = [item["code"] for item in _context(db, account_id, state).get("position_exposures", [])[:5]]
     requested_codes = codes
-    codes = _futu_quote_codes(codes)[:8]
+    codes = _market_codes(codes)[:8]
     unsupported_codes = [code for code in requested_codes if code not in codes]
     if not codes:
         return {"status": "missing", "message": "没有可查询 K 线的市场代码", "unsupported_codes": unsupported_codes}
@@ -428,19 +430,9 @@ def _requested_codes(args: dict[str, Any], state: dict[str, Any]) -> list[str]:
     return [str(item.get("code")) for item in state.get("selected_exposures", []) if item.get("code")]
 
 
-def _futu_quote_codes(codes: list[str]) -> list[str]:
-    result = []
-    seen = set()
-    for code in codes:
-        text = str(code or "").strip().upper()
-        if "." not in text:
-            continue
-        prefix = text.split(".", 1)[0]
-        if prefix not in FUTU_QUOTE_PREFIXES or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
+def _market_codes(codes: list[str]) -> list[str]:
+    # Local facts are provider-neutral. Eligibility belongs to external adapters.
+    return list(dict.fromkeys(str(c).strip().upper() for c in codes if str(c).strip()))
 
 
 def _quote_payload(code: str, current_price: float, change_ratio: float, volume: float, quote_time: datetime | None, source: str) -> dict[str, Any]:

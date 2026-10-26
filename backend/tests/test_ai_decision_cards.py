@@ -138,7 +138,7 @@ def test_ai_generation_passes_layer_specific_framework_and_sanitizes(monkeypatch
             "enabled": True,
         },
     )
-    monkeypatch.setattr(ai_decision_cards, "_fetch_technical_summaries", lambda codes: {code: {"daily": {"status": "missing"}, "weekly": {"status": "missing"}} for code in codes})
+    monkeypatch.setattr(ai_decision_cards, "_fetch_technical_summaries", lambda codes, db: {code: {"daily": {"status": "missing"}, "weekly": {"status": "missing"}} for code in codes})
     monkeypatch.setattr(ai_decision_cards, "call_llm_chat_completion", fake_call)
 
     result = ai_decision_cards.generate_ai_decision_cards(db)

@@ -6,8 +6,7 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.adapters.futu_adapter import FutuReadOnlyAdapter
-from app.models import Deal, DecisionCard, PositionSnapshot, QuoteSummary, TradeReview
+from app.models import Deal, DecisionCard, KlineSnapshot, PositionSnapshot, QuoteSummary, TradeReview
 
 
 REVIEW_MOVE_THRESHOLD = 0.03
@@ -239,7 +238,11 @@ def _price_after(
         return None
 
     if fetch_market_data:
-        kline_price = _daily_kline_price_after(code, target, kline_cache)
+        bar = db.scalar(select(KlineSnapshot).where(KlineSnapshot.code == code, KlineSnapshot.period == "K_DAY",
+            KlineSnapshot.time_key >= target.date().isoformat()).order_by(KlineSnapshot.time_key.asc()).limit(1))
+        if bar is not None:
+            return bar.close
+        kline_price = _daily_kline_price_after(db, code, target, kline_cache)
         if kline_price is not None:
             return kline_price
 
@@ -253,6 +256,7 @@ def _price_after(
 
 
 def _daily_kline_price_after(
+    db: Session,
     code: str,
     target: datetime,
     kline_cache: dict[tuple[str, str], float | None] | None,
@@ -261,7 +265,9 @@ def _daily_kline_price_after(
     key = (code, target.date().isoformat())
     if key not in cache:
         try:
-            cache[key] = FutuReadOnlyAdapter().fetch_daily_close_after(code, target)
+            from . import data_sources
+            provider = data_sources.provider_registry().get("futu")
+            cache[key] = provider.factory(data_sources.config(db, provider)).adapter.fetch_daily_close_after(code, target) if data_sources.availability(db, provider)[0] == "configured" else None
         except Exception:
             cache[key] = None
     return cache[key]

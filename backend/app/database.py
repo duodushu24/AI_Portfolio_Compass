@@ -105,6 +105,8 @@ def _ensure_sqlite_columns() -> None:
                 if column not in trade_review_columns:
                     conn.execute(text(f"alter table trade_reviews add column {column} {definition}"))
         quote_columns = {row[1] for row in conn.execute(text("pragma table_info(quote_summaries)")).fetchall()}
+        if quote_columns and "metadata_json" not in quote_columns:
+            conn.execute(text("alter table quote_summaries add column metadata_json json default '{}'"))
         if quote_columns:
             quote_additions = {
                 "provider": "varchar default 'futu'",

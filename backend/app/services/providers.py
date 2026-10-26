@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Protocol, Callable
 
 from app.config import get_settings
 
@@ -87,6 +87,9 @@ class StaticProvider:
     realtime: bool = False
     delayed: bool = True
     license_note: str = ""
+    group: str = "paid"
+    factory: Callable | None = None
+    fields: tuple[dict, ...] = ()
 
     def health(self) -> ProviderHealth:
         settings = get_settings()
@@ -148,7 +151,7 @@ class ProviderRegistry:
         normalized_market = normalize_market(market)
         providers = []
         for provider in self._providers.values():
-            if any(cap.data_type == data_type and normalized_market in cap.markets for cap in provider.capabilities()):
+            if provider.factory and any(cap.data_type == data_type and normalized_market in cap.markets for cap in provider.capabilities()):
                 providers.append(provider)
         return providers
 
@@ -172,12 +175,39 @@ def provider_registry() -> ProviderRegistry:
     registry.register(StaticProvider("fmp", "Financial Modeling Prep", ("quote", "news"), ("US", "HK"), ("fmp_api_key",), delayed=True, license_note="独立 API，覆盖范围以官方接口和订阅层级为准。"))
     registry.register(StaticProvider("alpha_vantage", "Alpha Vantage", ("quote", "news"), ("US", "HK"), ("alpha_vantage_api_key",), delayed=True, license_note="独立 API，免费层有频率限制。"))
     registry.register(StaticProvider("tushare", "Tushare Pro", ("quote", "kline", "announcement"), ("CN", "HK"), ("tushare_token",), delayed=True, license_note="A股优先，港股按接口实际可用性检测。"))
-    registry.register(StaticProvider("akshare", "AKShare", ("quote",), ("CN",), (), delayed=True, license_note="社区/本地可选源，不作为默认生产可靠源。"))
     registry.register(StaticProvider("marketaux", "Marketaux", ("news",), ("US",), ("marketaux_api_token",), delayed=True, license_note="市场新闻 API，按用户自带 token 使用。"))
     registry.register(StaticProvider("sec_edgar", "SEC EDGAR", ("filing", "announcement"), ("US",), (), delayed=True, license_note="官方公告源；仅缓存元数据与链接。"))
     registry.register(StaticProvider("hkexnews", "HKEXnews", ("announcement",), ("HK",), (), delayed=True, license_note="港股公告源；仅缓存元数据与链接。"))
     registry.register(StaticProvider("cninfo", "巨潮资讯 CNINFO", ("announcement",), ("CN",), (), delayed=True, license_note="A股公告源；仅缓存元数据与链接。"))
+    # This is the single catalog for implemented adapters and generated UI fields.
+    futu = registry.get("futu")
+    futu.factory, futu.fields = _futu_factory, (
+        {"key": "host", "label": "OpenD 地址", "type": "text", "default": "127.0.0.1"},
+        {"key": "port", "label": "OpenD 端口", "type": "number", "default": 11111})
+    futu.license_note = "需登录 OpenD 并取得相应行情权限；实际费用依服务商权限规则，不代表每次请求收费。"
+    registry.register(StaticProvider("akshare", "AKShare", ("quote", "news", "kline"), ("CN",),
+        group="free", factory=_akshare_factory, license_note="默认免费来源：沪深股票/ETF 收盘价、正式基金净值、境内个股新闻；依上游条件使用。",
+        fields=({"key": "timeout_seconds", "label": "单次请求超时（秒）", "type": "number", "default": 20},)))
+    marketaux = registry.get("marketaux")
+    marketaux.group, marketaux.factory = "free", _marketaux_factory
+    marketaux.fields = ({"key": "api_token", "label": "API Key", "type": "secret", "env": "marketaux_api_token"},)
+    marketaux.license_note = "可选免费额度，需自行申请 Key；当前仅支持美股相关新闻，非默认来源。"
     return registry
+
+
+def _akshare_factory(config):
+    from app.adapters.akshare_adapter import AKShareAdapter
+    return AKShareAdapter(config)
+
+
+def _futu_factory(config):
+    from app.adapters.external_data import FutuDataAdapter
+    return FutuDataAdapter(config)
+
+
+def _marketaux_factory(config):
+    from app.adapters.external_data import MarketauxAdapter
+    return MarketauxAdapter(config)
 
 
 def normalize_market(value: str) -> str:
@@ -188,7 +218,7 @@ def normalize_market(value: str) -> str:
 def normalize_symbol(code: str, provider: str = "internal") -> str:
     market, symbol = split_symbol(code)
     if provider == "futu" or provider == "internal":
-        if market == "CN" and symbol.startswith(("6", "9")):
+        if market == "CN" and symbol.startswith(("5", "6", "9")):
             return f"SH.{symbol}"
         if market == "CN":
             return f"SZ.{symbol}"
@@ -222,38 +252,9 @@ def split_symbol(code: str) -> tuple[str, str]:
     return "US", text
 
 
-def account_provider_statuses(broker_provider: str, markets: list[str], market_data_provider: str = "", news_data_provider: str = "") -> list[dict[str, Any]]:
-    registry = provider_registry()
-    settings = get_settings()
-    quote_preferred = _configured_priority(settings.market_data_provider_priority)
-    news_preferred = _configured_priority(settings.news_provider_priority or settings.news_provider)
-    account_quote_preferred = _configured_priority(market_data_provider)
-    account_news_preferred = _configured_priority(news_data_provider)
-    rows = []
-    for market in sorted({normalize_market(item) for item in markets if item} or {"US"}):
-        for data_type, account_preferred, fallback_preferred in (("quote", account_quote_preferred, quote_preferred), ("news", account_news_preferred, news_preferred), ("announcement", [], [])):
-            provider = _account_preferred_provider(registry, data_type, market, account_preferred)
-            if account_preferred and not provider:
-                rows.append(_status_row(account_preferred[0], data_type, market, ProviderHealth(account_preferred[0], "unsupported", "当前 provider 不支持该市场或数据类型")))
-                continue
-            provider = provider or registry.choose(data_type=data_type, market=market, broker_provider=broker_provider, preferred=fallback_preferred)
-            if not provider:
-                rows.append(_status_row("", data_type, market, ProviderHealth("", "unsupported", "当前市场暂无可用 provider")))
-                continue
-            rows.append(_status_row(provider.name, data_type, market, provider.health(), provider))
-    return rows
-
-
-def _account_preferred_provider(registry: ProviderRegistry, data_type: str, market: str, preferred: list[str]) -> StaticProvider | None:
-    if not preferred:
-        return None
-    provider = registry.get(preferred[0])
-    if not provider:
-        return None
-    normalized_market = normalize_market(market)
-    if any(cap.data_type == data_type and normalized_market in cap.markets for cap in provider.capabilities()):
-        return provider
-    return None
+def account_provider_statuses(broker_provider: str, markets: list[str], market_data_provider: str = "", news_data_provider: str = "", db=None) -> list[dict[str, Any]]:
+    from .data_sources import account_states
+    return account_states(db, markets, market_data_provider, news_data_provider)
 
 
 def _status_row(provider_name: str, data_type: str, market: str, health: ProviderHealth, provider: StaticProvider | None = None) -> dict[str, Any]:
@@ -271,30 +272,7 @@ def _status_row(provider_name: str, data_type: str, market: str, health: Provide
 
 
 def _provider_order(data_type: str, market: str, broker_provider: str, preferred: list[str] | None) -> list[str]:
-    market = normalize_market(market)
-    broker_provider = broker_provider.strip().lower()
-    account_first = [broker_provider] if broker_provider in {"futu", "alpaca"} else []
-    if data_type == "quote":
-        if broker_provider == "futu":
-            default = {
-                "US": ["futu", "alpaca", "polygon", "fmp", "alpha_vantage"],
-                "HK": ["futu", "tushare", "fmp", "alpha_vantage"],
-                "CN": ["futu", "tushare", "akshare"],
-            }.get(market, [])
-        else:
-            default = {
-                "US": ["alpaca", "polygon", "fmp", "alpha_vantage"],
-                "HK": ["tushare", "fmp", "alpha_vantage"],
-                "CN": ["tushare", "akshare"],
-            }.get(market, [])
-    elif data_type == "news":
-        if broker_provider == "futu":
-            default = ["marketaux", "alpha_vantage", "fmp", "futu"] if market == "US" else ["futu"]
-        else:
-            default = ["marketaux", "alpha_vantage", "fmp"] if market == "US" else []
-    else:
-        default = {"US": ["sec_edgar"], "HK": ["hkexnews"], "CN": ["cninfo"]}.get(market, [])
-    return _dedupe([*(preferred or []), *account_first, *default])
+    return _dedupe([*(preferred or []), *(["akshare"] if market == "CN" and data_type in {"quote", "news", "kline"} else [])])
 
 
 def _configured_priority(value: str) -> list[str]:

@@ -8,7 +8,6 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.adapters.futu_adapter import FutuReadOnlyAdapter
 from app.config import get_settings
 from app.services.portfolio.ledger import asset_unit
 from app.models import DecisionCard, PositionSnapshot
@@ -120,7 +119,7 @@ def generate_ai_decision_cards(
     if not positions:
         return {"status": "empty", "generated_count": 0, "failed": []}
 
-    technicals = _fetch_technical_summaries([item.code for item in positions])
+    technicals = _fetch_technical_summaries([item.code for item in positions], db)
     portfolio = _portfolio_context(db, positions)
     generated = 0
     failed: list[dict[str, str]] = []
@@ -147,11 +146,15 @@ def generate_ai_decision_cards(
     return {"status": status, "model": model, "prompt_hash": prompt_hash, "generated_count": generated, "failed": failed}
 
 
-def _fetch_technical_summaries(codes: list[str]) -> dict[str, dict[str, Any]]:
+def _fetch_technical_summaries(codes: list[str], db: Session) -> dict[str, dict[str, Any]]:
     try:
-        return FutuReadOnlyAdapter().fetch_technical_summaries(codes)
+        from . import data_sources
+        provider = data_sources.provider_registry().get("futu")
+        if data_sources.availability(db, provider)[0] == "configured":
+            return provider.factory(data_sources.config(db, provider)).adapter.fetch_technical_summaries(codes)
     except Exception:
-        return {code: {"daily": {"status": "missing"}, "weekly": {"status": "missing"}} for code in codes}
+        pass
+    return {code: {"daily": {"status": "missing"}, "weekly": {"status": "missing"}} for code in codes}
 
 
 def _portfolio_context(db: Session, positions: list[PositionSnapshot]) -> dict[str, Any]:

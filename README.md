@@ -141,7 +141,7 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 - 日记阅读与整理：AI 回复和总结支持常用 Markdown 排版，总结正文可编辑及预览。分析用于深入理解，总结保留核心结论、必要依据与边界；原文范围显示选中条数及日期、标题，不自动读取其他日期日记。总结的实际凝练质量仍需模型试用验证。
 - 投资标签库：维护简短名称、使用定义和别名；AI 优先复用已有标签，新标签由用户确认，可手工新增、改名或合并并保留总结关联。
 - 组合诊断工作流：客户画像、持仓诊断、资产配置建议等结构化报告。
-- 数据源治理：行情、新闻、汇率、Futu OpenD、Tushare、Alpaca、FMP、Polygon、Alpha Vantage 等可配置 provider。
+- 数据源：免费默认 AKShare，支持沪深股票/ETF 收盘价、基金正式净值和境内个股新闻；免费/付费源统一管理，Futu OpenD 可选，Marketaux 保留免费额度 Key 配置。其他注册项尚未实现取数，不作为可用选项。
 - 数据新鲜度矩阵：持仓、成交、行情、资讯、汇率、画像和决策卡都有过期处理。
 
 成本计算唯一采用摊薄法：本持有阶段净成本＝买入清算支出－卖出净收入－净现金分红，除以剩余数量得到摊薄成本价；部分卖出和分红均会改变成本价，持仓盈亏已含二者，数量归零才结算清仓收益，再买入重新开阶段。分红按记账时间视同到账，不处理除息到到账的时间差，不自动调整市值价；清仓收益率以该阶段累计买入支出为分母，非正或未知分母不输出比例。详见 [P-007/S-001](issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md) 和 [C-017](CODE_CHANGE_LOG/C-017-manual-dividend-cost.md)。
@@ -176,7 +176,7 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 
 ## 快速开始
 
-给 Codex 或 Claude Code 的一句话安装指令：`请在当前目录安装并启动 AI Portfolio Compass：克隆仓库、复制 .env.example 为 .env、运行 ./scripts/start.sh，并告诉我本地访问地址。启动完成后请明确说明：本系统依赖本机 Futu / moomoo OpenD，默认连接 127.0.0.1:11111；券商密码只在 OpenD 中使用，不要输入本系统；引导我启动并登录 OpenD、检查连接并执行首次同步。`
+给 Codex 或 Claude Code 的一句话安装指令：`请在当前目录安装并启动 AI Portfolio Compass：克隆仓库、复制 .env.example 为 .env、运行 ./scripts/start.sh，并告诉我本地访问地址。使用 Python 3.11 或以上安装后端依赖。启动后引导我建立手工账户，在“AI与高级设置 → 数据源”检测默认免费 AKShare；富途/OpenD 仅为可选来源，不是首次使用的必需项。`
 
 克隆仓库后，创建本地环境变量文件：
 
@@ -224,7 +224,7 @@ http://127.0.0.1:4410/
 
 ## 手动启动
 
-后端：
+后端（Python 3.11 或以上；AKShare 已包含在依赖中）：
 
 ```bash
 cd backend
@@ -244,25 +244,31 @@ npm run dev
 
 前端默认运行在 `http://127.0.0.1:4410`，正式后端健康检查地址为 `http://127.0.0.1:8010/api/health`，演示后端为 `http://127.0.0.1:8011/api/health`。端口 `4400/8000` 保留给非 public 版项目。
 
+Windows PowerShell 可在项目根安装和启动正式后端，前端仍在 `frontend` 目录执行上面的 npm 命令：
+
+```powershell
+python -m venv backend/.venv
+backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
+backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8010
+```
+
 ## 配置
 
-复制 `.env.example` 为 `.env`，只填写你实际需要的数据源。开源版本不包含任何商业 API Key。
+复制 `.env.example` 为 `.env`。默认 AKShare 不需要 Key、证券账户或 OpenD；在“AI与高级设置 → 数据源 → 免费源”检测后，到“账户与数据”的行情/新闻页手动更新。沪深股票/ETF 使用已完成交易日的不复权收盘价，场外基金使用正式单位净值，保留原始价格日期；盘中运行不会把当日未完成日线当收盘价。ETF/基金新闻、港美股免费行情、银行黄金和自动汇率暂未覆盖，可手动维护。
+
+付费源页按需启用 Futu，配置 OpenD 地址/端口并检测；Marketaux 为需 Key 的可选免费额度来源。前端保存的设置优先，旧环境变量仍兼容。普通沿用报价不视为估算，失败保留原有价格与日期。开源版本不包含商业 API Key。
+
+开发者接入其他来源时，在 `backend/app/adapters/` 实现适配器，并在 `backend/app/services/providers.py` 登记分组、工厂、能力及配置字段。前端自动生成相应卡片和表单，不需要再维护服务商名单。AKShare 当前股票/ETF 使用新浪接口，基金净值/个股新闻使用东方财富接口；并非互相独立的稳定性保证。
 
 ```bash
 FUTU_OPEND_HOST=127.0.0.1
 FUTU_OPEND_PORT=11111
 FUTU_TRD_ENV=REAL
 
-MARKET_DATA_PROVIDER_PRIORITY=alpaca,polygon,fmp,alpha_vantage
-NEWS_PROVIDER_PRIORITY=marketaux,alpha_vantage,fmp
+MARKET_DATA_PROVIDER_PRIORITY=akshare
+NEWS_PROVIDER_PRIORITY=akshare
 
-ALPACA_API_KEY=
-ALPACA_SECRET_KEY=
-ALPHA_VANTAGE_API_KEY=
-FMP_API_KEY=
-POLYGON_API_KEY=
 MARKETAUX_API_TOKEN=
-TUSHARE_TOKEN=
 
 AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=
@@ -272,7 +278,7 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 如果没有配置 `DEEPSEEK_API_KEY`，单标的分析会使用本地结构化规则降级；需要外部模型参与的长报告工作流会明确提示未配置，不会伪装成 AI 报告。
 
-## 首次连接 Futu / moomoo OpenD
+## 可选：首次连接 Futu / moomoo OpenD
 
 AI Portfolio Compass 通过你电脑上的 Futu / moomoo OpenD 以只读方式读取账户数据。系统不会执行下单、撤单、改单或解锁操作，也不会要求你在本系统中填写券商密码。
 
@@ -281,7 +287,7 @@ AI Portfolio Compass 通过你电脑上的 Futu / moomoo OpenD 以只读方式�
 1. 安装并启动 Futu / moomoo OpenD。
 2. 在 OpenD 中登录正确的 Futu 账号，并完成所需的手机验证和账户授权。
 3. 确认 OpenD 的本地监听地址与项目配置一致：默认是 `127.0.0.1:11111`。
-4. 打开工作台首页；空系统会显示“连接 Futu 账户”状态卡。
+4. 在“AI与高级设置 → 数据源 → 付费源”启用 Futu 并保存连接配置，再回首页查看连接状态。
 5. 点击“检查连接”。连接成功并读取到账户后，点击“首次同步”。
 6. 系统会自动发现并创建 Futu 账户，然后读取账户资产、持仓和成交记录。
 
@@ -495,7 +501,7 @@ Safety is a first-class design constraint:
 - Trade review with execution outcome, later market movement, discipline labels, and risk focus.
 - Independent investment diaries under Review: save original text to SQLite and dated Markdown files, browse/search entries, and edit them. AI distillation is planned for the next phase.
 - Structured AI workflows for customer profiling, portfolio diagnosis, and allocation suggestions.
-- Configurable providers for market data, news, FX, Futu OpenD, Tushare, Alpaca, FMP, Polygon, Alpha Vantage, and more.
+- Free AKShare data by default: mainland stock/ETF closes, published fund NAVs, and stock news. Free/paid providers share one settings area; Futu is optional and Marketaux retains its key-based free quota. Unimplemented provider placeholders are not offered as working integrations.
 - Freshness rules for holdings, trades, quotes, news, FX rates, profiles, and decision cards.
 
 ## Who It Is For
@@ -518,7 +524,7 @@ It is not a good fit for:
 
 ## Quick Start
 
-One-line instruction for Codex or Claude Code: `Install and start AI Portfolio Compass in the current directory: clone the repository, copy .env.example to .env, run ./scripts/start.sh, and tell me the local URL. After startup, explain that the system depends on local Futu / moomoo OpenD at 127.0.0.1:11111, that brokerage passwords must be entered only in OpenD and never in this system, and guide me through checking the connection and performing the first sync.`
+One-line instruction for Codex or Claude Code: `Install and start AI Portfolio Compass in the current directory: clone the repository, copy .env.example to .env, run ./scripts/start.sh, and tell me the local URL. Use Python 3.11 or later for backend dependencies. Guide me to create a manual account and check free AKShare under AI & Advanced Settings → Data Sources. Futu/OpenD is optional.`
 
 Create your local environment file:
 
@@ -554,7 +560,7 @@ Runtime logs are written to `.runtime/logs/`, which is ignored by Git.
 
 ## Manual Setup
 
-Backend:
+Backend (Python 3.11 or later; requirements include AKShare):
 
 ```bash
 cd backend
@@ -576,23 +582,17 @@ The frontend runs at `http://127.0.0.1:4410`; the formal backend health endpoint
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill only the providers you need. The open-source version does not include commercial API keys.
+Copy `.env.example` to `.env`. Default AKShare needs no key, brokerage account, or OpenD. Check it under AI & Advanced Settings → Data Sources → Free, then manually update quotes/news in Accounts & Data. Mainland stocks/ETFs use completed-day unadjusted closes; OTC funds use published unit NAVs with their original dates. ETF/fund news, free HK/US quotes, bank gold and automatic FX are outside this batch. Enable optional Futu in Paid, or configure Marketaux with your own key for its free quota. Saved UI settings take priority over legacy environment values; failed updates preserve existing prices. No commercial API keys are included.
 
 ```bash
 FUTU_OPEND_HOST=127.0.0.1
 FUTU_OPEND_PORT=11111
 FUTU_TRD_ENV=REAL
 
-MARKET_DATA_PROVIDER_PRIORITY=alpaca,polygon,fmp,alpha_vantage
-NEWS_PROVIDER_PRIORITY=marketaux,alpha_vantage,fmp
+MARKET_DATA_PROVIDER_PRIORITY=akshare
+NEWS_PROVIDER_PRIORITY=akshare
 
-ALPACA_API_KEY=
-ALPACA_SECRET_KEY=
-ALPHA_VANTAGE_API_KEY=
-FMP_API_KEY=
-POLYGON_API_KEY=
 MARKETAUX_API_TOKEN=
-TUSHARE_TOKEN=
 
 AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=

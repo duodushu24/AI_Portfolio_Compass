@@ -29,7 +29,7 @@ class Settings:
     futu_default_market: str = os.getenv("FUTU_DEFAULT_MARKET", "US")
     futu_acc_id: str = os.getenv("FUTU_ACC_ID", "")
     futu_security_firm: str = os.getenv("FUTU_SECURITY_FIRM", "FUTUSECURITIES")
-    news_provider: str = os.getenv("NEWS_PROVIDER", "marketaux")
+    news_provider: str = os.getenv("NEWS_PROVIDER", "akshare")
     marketaux_api_token: str = os.getenv("MARKETAUX_API_TOKEN", "")
     alpaca_api_key: str = os.getenv("ALPACA_API_KEY", "")
     alpaca_secret_key: str = os.getenv("ALPACA_SECRET_KEY", "")

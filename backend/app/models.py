@@ -278,6 +278,7 @@ class QuoteSummary(Base):
     exchange: Mapped[str] = mapped_column(String, default="")
     is_delayed: Mapped[bool] = mapped_column(Boolean, default=False)
     license_note: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     current_price: Mapped[float] = mapped_column(Float, default=0)
     change_ratio: Mapped[float] = mapped_column(Float, default=0)
     volume: Mapped[float] = mapped_column(Float, default=0)
@@ -511,6 +512,13 @@ class TradeReview(Base):
     generated_by: Mapped[str] = mapped_column(String, default="rule_local_ai")
     created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class DataProviderConfig(Base):
+    __tablename__ = "data_provider_configs"
+
+    provider_id: Mapped[str] = mapped_column(String, primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class DataSourceState(Base):

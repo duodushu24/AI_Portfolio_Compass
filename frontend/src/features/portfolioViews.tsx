@@ -9,6 +9,9 @@ import { OpeningEditor, PortfolioWorkbench } from "./portfolio/PortfolioWorkbenc
 import { AssetTable, PortfolioPanel } from "./portfolio/PortfolioPanel";
 import { SourceRecords } from "./portfolio/SourceRecords";
 import { RenameSecurity } from "./portfolio/RenameSecurity";
+import { DataSourcesPanel } from "./dataSources/DataSourcesPanel";
+import { sourceApi, OPEN_DATA_SOURCES } from "./dataSources/api";
+import type { ProviderItem } from "./dataSources/api";
 
 const layers = ["全部", "核心长期仓", "中期配置仓", "短期交易仓", "期权仓", "遗留观察仓"];
 const intentTagGroups: Array<{ key: keyof TradeIntentTags; title: string; items: string[] }> = [
@@ -38,23 +41,6 @@ const workflowCards: Array<{ type: AIWorkflowRun["workflow_type"]; title: string
   { type: "customer_profile", title: "客户画像分析", subtitle: "结合 KYC、风险偏好、资金流和交易行为生成投资者画像" },
   { type: "portfolio_diagnosis", title: "持仓诊断分析", subtitle: "组合集中度、盈亏、主题暴露、风险和实时关注点" },
   { type: "asset_allocation", title: "资产配置建议", subtitle: "给出目标比例、参考标的、金额口径和调仓方向" },
-];
-const marketDataProviderOptions = [
-  { value: "", label: "系统推荐" },
-  { value: "futu", label: "Futu / moomoo OpenD" },
-  { value: "tushare", label: "Tushare Pro" },
-  { value: "alpaca", label: "Alpaca Market Data" },
-  { value: "polygon", label: "Polygon / Massive" },
-  { value: "fmp", label: "Financial Modeling Prep" },
-  { value: "alpha_vantage", label: "Alpha Vantage" },
-  { value: "akshare", label: "AKShare" },
-];
-const newsDataProviderOptions = [
-  { value: "", label: "系统推荐" },
-  { value: "futu", label: "Futu / moomoo OpenD" },
-  { value: "marketaux", label: "Marketaux" },
-  { value: "fmp", label: "Financial Modeling Prep" },
-  { value: "alpha_vantage", label: "Alpha Vantage" },
 ];
 const positionMarketOptions = [
   { value: "US", label: "美股" },
@@ -183,6 +169,7 @@ export function FutuConnectionCard({ health, onRefresh, onSync }: { health: Heal
     try { await onSync(); } finally { setSyncing(false); }
   }
 
+  if (!futu?.enabled) return <section className="panel stack"><h2>建立你的投资账户</h2><p>可在“账户与数据 → 账户管理”建立手工账户并录入持仓。免费行情默认使用 AKShare，富途可在“AI与高级设置 → 数据源 → 付费源”按需配置。</p></section>;
   return (
     <section className="panel futu-connection-card">
       <div className="futu-connection-main">
@@ -637,6 +624,9 @@ export function AccountDataPage({ accounts, health, emptySystem, onChanged, onIm
 }
 
 export function AccountsAdminPage({ accounts, onChanged, setNotice, requestConfirm, onConnectFutu }: { accounts: AccountSummary[]; onChanged: () => Promise<void>; setNotice: (notice: string) => void; requestConfirm: (options: ConfirmOptions) => Promise<boolean>; onConnectFutu: () => Promise<void> }) {
+  const [sourceCatalog, setSourceCatalog] = useState<ProviderItem[]>([]);
+  useEffect(() => {sourceApi.list().then(r => setSourceCatalog(r.items)).catch(() => {});}, []);
+  const sourceOptions = (kind: string, selected: string) => [{value: "", label: "使用统一数据源配置"}, ...sourceCatalog.filter(p => p.capabilities.includes(kind)).map(p => ({value: p.id, label: `${p.label} · ${p.group === "free" ? "免费源" : "付费源"}`})), ...(!selected || sourceCatalog.some(p => p.id === selected) ? [] : [{value: selected, label: `${selected}（旧配置，尚未实现）`}])];
   const [editing, setEditing] = useState<AccountSummary | null>(null);
   const [form, setForm] = useState(accountFormDefaults());
   const [modalOpen, setModalOpen] = useState(false);
@@ -876,10 +866,10 @@ export function AccountsAdminPage({ accounts, onChanged, setNotice, requestConfi
                 </div>
               </Form.Item>
               <Form.Item label="行情数据配置">
-                <StyledSelect value={form.market_data_provider} ariaLabel="选择行情数据配置" options={marketDataProviderOptions} onChange={(value) => setForm({ ...form, market_data_provider: value })} />
+                <StyledSelect value={form.market_data_provider} ariaLabel="选择行情数据配置" options={sourceOptions("quote", form.market_data_provider)} onChange={(value) => setForm({ ...form, market_data_provider: value })} />
               </Form.Item>
               <Form.Item label="新闻数据配置">
-                <StyledSelect value={form.news_data_provider} ariaLabel="选择新闻数据配置" options={newsDataProviderOptions} onChange={(value) => setForm({ ...form, news_data_provider: value })} />
+                <StyledSelect value={form.news_data_provider} ariaLabel="选择新闻数据配置" options={sourceOptions("news", form.news_data_provider)} onChange={(value) => setForm({ ...form, news_data_provider: value })} />
               </Form.Item>
               <Form.Item label="账户状态">
                 <Checkbox checked={form.enabled} onChange={(checked) => setForm({ ...form, enabled: checked })}>启用账户</Checkbox>
@@ -927,7 +917,7 @@ export function accountImportConfigLabel(account: AccountSummary) {
 }
 
 export function accountProviderConfigLabel(account: AccountSummary) {
-  return `行情：${providerOptionLabel(account.market_data_provider, marketDataProviderOptions)} · 新闻：${providerOptionLabel(account.news_data_provider, newsDataProviderOptions)}`;
+  return `行情：${account.market_data_provider || "统一配置"} · 新闻：${account.news_data_provider || "统一配置"}`;
 }
 
 export function providerOptionLabel(value = "", options: Array<{ value: string; label: string }>) {
@@ -3665,8 +3655,8 @@ export function ApiConnectionStatusCard({ account, source, states, canImportApi,
   const primary = pickPrimaryProviderState(source.dataType, visibleStates);
   const requiredEnv = requiredProviderEnv(primary, source.dataType);
   const status = apiSetupStatus(source.dataType, visibleStates);
-  const canCheck = canImportApi && Boolean(primary?.provider) && !loading;
-  const canPull = canImportApi && Boolean(primary?.provider) && !loading && !pulling;
+  const canCheck = Boolean(primary?.provider) && !loading;
+  const canPull = Boolean(primary?.provider) && !loading && !pulling;
   return (
     <div className="api-simple-panel">
       <div className="api-simple-hero">
@@ -3682,8 +3672,8 @@ export function ApiConnectionStatusCard({ account, source, states, canImportApi,
         <div className="api-simple-side">
           <Tag color={status.color}>{status.label}</Tag>
           <Button type="primary" disabled={!canCheck} loading={loading} onClick={() => primary && onCheck(primary.data_type, primary.market, primary.provider)}>检测联通</Button>
-          <Button type="primary" disabled={!canPull} loading={pulling} onClick={() => onPull(source.dataType)}>拉取数据</Button>
-          {onOpenAccounts ? <Button onClick={onOpenAccounts}>管理账户</Button> : null}
+          <Button type="primary" disabled={!canPull} loading={pulling} onClick={() => onPull(source.dataType)}>{source.dataType === "quote" ? "更新行情" : "更新新闻"}</Button>
+          <Button onClick={() => window.dispatchEvent(new Event(OPEN_DATA_SOURCES))}>管理数据源</Button>
         </div>
       </div>
 
@@ -3731,13 +3721,13 @@ export function ApiConnectionStatusCard({ account, source, states, canImportApi,
                   <div className="api-connection-status">
                     <Tag color={providerStatusColor(item.status)}>{providerStatusLabel(item.status)}</Tag>
                     <span>{item.last_success_time ? formatDate(item.last_success_time) : item.checked_at ? `检测 ${formatDate(item.checked_at)}` : "尚未检测"}</span>
-                    <Button size="mini" disabled={!canImportApi || loading} onClick={() => onCheck(item.data_type, item.market, item.provider)}>检测</Button>
+                    <Button size="mini" disabled={loading} onClick={() => onCheck(item.data_type, item.market, item.provider)}>检测</Button>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <Empty title="暂无数据源状态" body="先在账户管理里设置账户市场，或在 .env 配置行情/新闻数据源。" />
+            <Empty title="暂无数据源状态" body="先设置账户市场，或到 AI与高级设置 → 数据源 中选择来源。" />
           )}
         </div>
       </details>
@@ -3746,7 +3736,7 @@ export function ApiConnectionStatusCard({ account, source, states, canImportApi,
 }
 
 export function providerSetupHint(item: ProviderState) {
-  if (item.status === "not_configured") return item.message || "缺少 API Key，请在 .env 中补齐后重启服务。";
+  if (item.status === "not_configured") return item.message || "缺少 API Key，请在数据源中补齐后重新检测。";
   if (item.provider === "futu") return "券商账户源：需要本地 OpenD 在线并完成账户授权。";
   if (item.data_type === "announcement" || item.data_type === "filing") return "官方公告源：只保存元数据与原始链接。";
   return item.license_note || "独立 API 源：按用户自带 Key 和订阅权限使用。";
@@ -3758,70 +3748,21 @@ export function pickPrimaryProviderState(dataType: string, states: ProviderState
 }
 
 export function apiSetupStatus(dataType: string, states: ProviderState[]) {
-  const available = states.find((item) => item.status === "available");
-  if (available) {
-    return {
-      title: `${available.provider_label || "数据源"} 已可用`,
-      body: dataType === "quote" ? "这个账户已经可以同步行情。后续只需要定期刷新。" : "这个账户已经可以同步新闻或资讯。",
-      label: "已联通",
-      color: "green",
-      nextTitle: "下一步：执行 API 刷新",
-      nextBody: "刷新后会写入最新同步结果。",
-    };
-  }
-  const missing = states.find((item) => item.status === "not_configured");
-  if (missing) {
-    const providerEnv = requiredProviderEnv(missing, dataType);
-    const needsApiKey = Boolean(providerEnv);
-    return {
-      title: dataType === "quote" ? "未配置行情源" : "未配置新闻源",
-      body: needsApiKey
-        ? `${marketName(missing.market)} 推荐使用 ${missing.provider_label || missing.provider}，但还缺少 API Key。`
-        : providerSetupHint(missing),
-      label: "需要配置",
-      color: "orange",
-      nextTitle: needsApiKey ? "下一步：填写 API Key" : "下一步：检查本地服务",
-      nextBody: needsApiKey ? "填写后重启本地服务，再检测联通。" : "确认 OpenD 已启动、已登录并完成账户授权，然后检测联通。",
-    };
-  }
-  const configured = states.find((item) => item.status === "configured");
-  if (configured) {
-    return {
-      title: `${configured.provider_label || "数据源"} 已配置`,
-      body: "配置项存在，但还没有成功同步结果。可以先检测联通。",
-      label: "待检测",
-      color: "blue",
-      nextTitle: "下一步：检测联通",
-      nextBody: "检测通过后再执行 API 刷新。",
-    };
-  }
-  return {
-    title: dataType === "quote" ? "暂无可用行情源" : "暂无可用新闻源",
-    body: dataType === "quote" ? "当前账户还没有匹配到可用行情数据源。" : "当前市场没有匹配到独立新闻源，可查看公告源或稍后配置。",
-    label: "不可用",
-    color: "gray",
-    nextTitle: "下一步：确认账户市场",
-    nextBody: "先确认账户持仓市场是否正确，再配置数据源。",
-  };
+  const p = states.find(s => s.status === "available") || states.find(s => s.status === "partial") || states[0];
+  const ok = p?.status === "available", configured = p?.status === "configured";
+  return {title: `${p?.provider_label || "数据源"}${ok ? " 已可用" : configured ? " 待检测" : ""}`,
+    body: p?.message || "该市场暂不支持自动获取，可手动更新。",
+    label: ok ? "已验证" : configured ? "待检测" : "待处理", color: ok ? "green" : configured ? "blue" : "gray",
+    nextTitle: ok ? "按需手动更新" : "数据源配置与检测",
+    nextBody: ok ? "行情按原始价格日期保存；未更新项继续保留最近有效值。" : "在 AI与高级设置 → 数据源 中查看支持范围、启用状态和具体检测结果。"};
 }
 
-export function requiredProviderEnv(item: ProviderState | null, dataType: string) {
-  const message = item?.message || "";
-  const match = message.match(/未配置\s+([A-Z0-9_,\s]+)/);
-  if (match?.[1]) return match[1].split(/[,，\s]+/).filter(Boolean)[0];
-  if (item?.provider === "tushare") return "TUSHARE_TOKEN";
-  if (item?.provider === "marketaux") return "MARKETAUX_API_TOKEN";
-  if (item?.provider === "alpaca") return "ALPACA_API_KEY";
-  if (item?.provider === "fmp") return "FMP_API_KEY";
-  if (item?.provider === "alpha_vantage") return "ALPHA_VANTAGE_API_KEY";
-  if (item?.provider === "polygon") return "POLYGON_API_KEY";
-  return "";
+export function requiredProviderEnv(item: ProviderState | null, _dataType: string) {
+  return item?.message.match(/未配置\s+([A-Z0-9_]+)/)?.[1] || "";
 }
 
-export function apiEnvHelpText(envName: string) {
-  if (envName === "TUSHARE_TOKEN") return "在 .env 中填写 Tushare Pro token，重启服务后点击检测联通。";
-  if (envName === "MARKETAUX_API_TOKEN") return "在 .env 中填写 Marketaux token，重启服务后点击检测联通。";
-  return `在 .env 中填写 ${envName}，重启服务后点击检测联通。`;
+export function apiEnvHelpText(_envName: string) {
+  return "在 AI与高级设置 → 数据源 中统一配置并保存，然后检测连接。";
 }
 
 export function providerMarketsLabel(states: ProviderState[]) {
@@ -3833,6 +3774,16 @@ export function providerStatusLabel(status: string) {
   const labels: Record<string, string> = {
     available: "已联通",
     configured: "已配置",
+    disabled: "未启用",
+    dependency_missing: "缺少依赖",
+    request_failed: "请求失败",
+    timeout: "请求超时",
+    permission_denied: "授权或额度不足",
+    not_implemented: "尚未实现",
+    conflict: "资料冲突",
+    invalid_data: "数据格式无效",
+    partial: "部分成功",
+    empty: "本次无新数据",
     not_configured: "未配置",
     unavailable: "不可用",
     missing: "无返回",
@@ -3843,8 +3794,9 @@ export function providerStatusLabel(status: string) {
 }
 
 export function providerStatusColor(status: string) {
-  if (status === "available" || status === "configured") return "green";
-  if (status === "not_configured" || status === "unsupported") return "gray";
+  if (status === "available") return "green";
+  if (status === "configured") return "blue";
+  if (["not_configured", "unsupported", "disabled", "empty", "not_implemented"].includes(status)) return "gray";
   if (status === "stale" || status === "missing") return "orange";
   return "red";
 }
@@ -4612,6 +4564,7 @@ export function AdvancedSettingsPage({ health, setNotice, requestConfirm, onDele
 
   return (
     <div className="stack settings-page">
+      <DataSourcesPanel />
       <section className="panel settings-hero">
         <div className="settings-hero-copy">
           <span className="section-kicker">AI 模型配置中心</span>

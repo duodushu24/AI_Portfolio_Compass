@@ -8,7 +8,6 @@ from uuid import uuid4
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.adapters.futu_adapter import FutuReadOnlyAdapter
 from app.models import (
     AIAnalysis,
     AIWorkflowRun,
@@ -52,6 +51,11 @@ USER_ACCOUNT_CONFIG_FIELDS = {
 
 
 def run_manual_sync(db: Session) -> SyncTask:
+    from . import data_sources
+    provider = data_sources.provider_registry().get("futu")
+    if data_sources.availability(db, provider)[0] != "configured":
+        return SyncTask(sync_id=f"sync_{uuid4().hex}", status="已跳过",
+                        error_message="富途来源未启用，请在 AI与高级设置 → 数据源 → 付费源 中配置；手工账户可直接更新行情。")
     existing = _recent_manual_sync(db)
     if existing:
         return existing
@@ -69,7 +73,7 @@ def run_manual_sync(db: Session) -> SyncTask:
     db.commit()
 
     try:
-        adapter = FutuReadOnlyAdapter()
+        adapter = provider.factory(data_sources.config(db, provider)).adapter
         snapshot = adapter.fetch_snapshot()
         inserted, updated = persist_snapshot(db, sync_id, snapshot)
         mark_source_state(db, "futu", "available", "", 0)
@@ -92,63 +96,93 @@ def pull_account_market_data(db: Session, account: Account, data_type: str) -> d
     normalized_type = str(data_type or "").strip().lower()
     if normalized_type not in {"quote", "news"}:
         raise ValueError("Unsupported data type")
+    from app.services import data_sources
+    from app.services.portfolio.ledger import asset_unit
     positions = [item for item in latest_positions(db, account.account_id) if item.code and not item.missing_market_code and item.asset_type != "precious_metal"]
     if not positions:
         return {"status": "empty", "message": "当前账户暂无可拉取的持仓标的", "inserted_count": 0, "updated_count": 0}
 
     sync_id = f"{normalized_type}_pull_{uuid4().hex}"
-    adapter = FutuReadOnlyAdapter()
-    if normalized_type == "quote":
-        rows = adapter.fetch_quote_summaries([item.code for item in positions])
-        inserted = _persist_quote_rows(db, sync_id, rows)
-        all_position_codes = sorted({item.code for item in latest_positions(db, "all") if item.code and not item.missing_market_code and item.asset_type != "precious_metal"})
-        kline_rows, kline_errors = adapter.fetch_kline_snapshot_rows(all_position_codes)
-        kline_inserted = _persist_kline_rows(db, sync_id, kline_rows)
-        _mark_account_pull_states(db, account, positions, "quote", rows, "")
-        db.commit()
-        kline_message = f"，并为全部账户 {len(all_position_codes)} 个持仓标的保存 {kline_inserted} 条日线/周线快照"
-        if kline_errors:
-            kline_message += f"（{len(kline_errors)} 个周期未返回）"
-        return {
-            "status": "success",
-            "message": f"已拉取 {inserted} 条行情数据{kline_message}",
-            "inserted_count": inserted + kline_inserted,
-            "updated_count": 0,
-            "kline_snapshot_count": kline_inserted,
-            "kline_errors": kline_errors,
-        }
-
-    position_payloads = [
-        {
-            "account_id": item.account_id,
-            "code": item.code,
-            "name": item.name,
-            "market": item.market,
-        }
-        for item in positions
-    ]
-    rows, error = adapter.fetch_news_items(position_payloads)
-    inserted, updated = _persist_news_rows(db, sync_id, rows)
-    _mark_account_pull_states(db, account, positions, "news", rows, error)
+    inserted = updated = bar_count = accepted = 0
+    failures, outcomes, seen, adapters = [], {}, set(), {}
+    explicit = account.market_data_provider if data_type == "quote" else account.news_data_provider
+    for item in positions:
+        asset = {"code": str(item.code).strip().upper(), "name": item.name,
+                 "market": normalize_market(item.market), "asset_type": item.asset_type,
+                 "unit": asset_unit(item.asset_type, item.unit), "currency": item.raw_currency or account.base_currency}
+        marker = (asset["code"], asset["currency"], asset["unit"])
+        if marker in seen:
+            continue
+        seen.add(marker)
+        provider = data_sources.choose(db, normalized_type, asset["market"], explicit or "")
+        result = None
+        if normalized_type == "quote" and provider and data_sources.availability(db, provider)[0] == "configured":
+            cache = db.scalar(select(QuoteSummary).where(QuoteSummary.code == asset["code"], QuoteSummary.provider == provider.name).order_by(QuoteSummary.quote_time.desc()))
+            meta = cache.metadata_json or {} if cache else {}
+            fetched = datetime.fromisoformat(meta["fetched_at"]) if meta.get("fetched_at") else None
+            if fetched and datetime.now(timezone.utc).timestamp() - fetched.timestamp() < 120 and meta.get("unit") == asset["unit"] and meta.get("currency") == asset["currency"]:
+                result = {"status": "available", "quotes": [], "message": "沿用两分钟内已验证的同标的行情"}
+        result = result or data_sources.fetch(db, provider, asset, normalized_type, adapters)
+        state_key = (provider.name if provider else explicit or "", asset["market"])
+        try:
+            added = changed = bars_added = 0
+            with db.begin_nested():
+                if result.get("quotes"):
+                    added += _persist_quote_rows(db, sync_id, result["quotes"])
+                if result.get("bars"):
+                    bars_added += _persist_kline_rows(db, sync_id, result["bars"])
+                if result.get("news"):
+                    a, b = _persist_news_rows(db, sync_id, result["news"])
+                    added += a; changed += b
+            inserted += added; updated += changed; bar_count += bars_added
+        except (ValueError, TypeError, KeyError):
+            result = {"status": "conflict", "message": "报价与已保存的同一时点事实冲突或格式无效，原有数据已保留，请核对后纠错"}
+        outcomes.setdefault(state_key, []).append(result)
+        if result["status"] in {"available", "empty"}:
+            accepted += 1
+        else:
+            failures.append({**asset, "provider": state_key[0], "status": result["status"], "message": result["message"]})
+    for (provider, market), rows in outcomes.items():
+        ok = [r for r in rows if r["status"] in {"available", "empty"}]
+        available = any(r["status"] == "available" for r in rows)
+        status = "partial" if ok and len(ok) != len(rows) else "available" if available else "empty" if ok else rows[0]["status"]
+        message = "；".join(dict.fromkeys(r["message"] for r in rows))
+        mark_source_state(db, f"{account.account_id}:{provider}:{data_type}:{market}", status, message, 0,
+                          account_id=account.account_id, provider=provider, data_type=data_type, market=market,
+                          last_success_time=datetime.now(timezone.utc) if available else None)
     db.commit()
-    status = "success" if rows else "empty"
-    message = f"已拉取 {inserted + updated} 条新闻数据" if rows else error or "本次未返回新闻数据"
-    return {"status": status, "message": message, "inserted_count": inserted, "updated_count": updated}
+    status = "partial" if failures and accepted else "failed" if failures else "success" if inserted + updated + bar_count else "empty"
+    message = f"处理 {accepted}/{len(seen)} 个标的，新增 {inserted} 条、更新 {updated} 条、日线 {bar_count} 条"
+    if failures:
+        message += "；" + "；".join(f"{r['name'] or r['code']}：{r['message']}" for r in failures[:5])
+    return {"status": status, "message": message, "inserted_count": inserted, "updated_count": updated,
+            "kline_snapshot_count": bar_count, "failures": failures}
 
 
 def _persist_quote_rows(db: Session, sync_id: str, rows: list[dict]) -> int:
     from app.services.portfolio.service import ingest_quotes, validate
-    ingest_quotes(db, rows, sync_id)
-    validate(db)
+    from app.services.portfolio.performance import instant
+    import math
     inserted = 0
+    fresh = []
     for payload in rows:
+        if not math.isfinite(float(payload["current_price"])) or float(payload["current_price"]) <= 0 or instant(payload["quote_time"]) > datetime.now(timezone.utc).replace(tzinfo=None):
+            raise ValueError("来源价格或实际日期无效")
         existing = db.scalar(select(QuoteSummary).where(QuoteSummary.code == payload["code"], QuoteSummary.quote_time == payload["quote_time"]))
         if existing:
+            metadata = existing.metadata_json or {}
+            if any(metadata.get(k) and payload.get(k) and metadata[k] != payload[k] for k in ("currency", "unit")):
+                raise ValueError("同代码同日期的币种或数量单位冲突，请核对标的身份")
             if existing.current_price != payload["current_price"]:
                 raise ValueError("同代码、同实际时间已有不同报价，请明确纠正原报价")
             continue
-        db.add(QuoteSummary(sync_id=sync_id, **payload))
+        fresh.append(payload)
+        columns = set(QuoteSummary.__table__.columns.keys()) - {"quote_id", "sync_id", "metadata_json"}
+        metadata = {k: str(payload[k]) for k in ("price_kind", "currency", "unit", "price_date", "time_precision", "upstream", "fetched_at") if k in payload}
+        db.add(QuoteSummary(sync_id=sync_id, metadata_json=metadata, **{k: v for k, v in payload.items() if k in columns}))
         inserted += 1
+    ingest_quotes(db, fresh, sync_id)
+    validate(db)
     return inserted
 
 
@@ -159,10 +193,15 @@ def _persist_kline_rows(db: Session, sync_id: str, rows: list[dict]) -> int:
         time_key = str(payload.get("time_key") or "")
         if not time_key or float(payload.get("close") or 0) <= 0:
             continue
+        existing = db.scalar(select(KlineSnapshot).where(KlineSnapshot.code == payload["code"],
+            KlineSnapshot.provider == payload.get("provider", "futu"), KlineSnapshot.period == payload["period"],
+            KlineSnapshot.time_key == time_key).order_by(KlineSnapshot.snapshot_time.desc()))
+        if existing and existing.close == float(payload["close"]):
+            continue
         db.add(
             KlineSnapshot(
                 code=str(payload["code"]),
-                provider="futu",
+                provider=payload.get("provider", "futu"),
                 period=str(payload["period"]),
                 time_key=time_key,
                 open=float(payload.get("open") or 0),
