@@ -6,10 +6,10 @@ title: "免费与付费数据源统一管理及 AKShare 接入"
 status: active
 created: "2026-10-26"
 updated: "2026-10-26"
-changes: []
+changes: ["C-031"]
 related: ["P-005", "P-009", "P-010"]
 evidence: ["issues/solutions/P-011/S-001-provider-groups-akshare.md", "backend/app/services/providers.py", "backend/app/services/sync.py", "backend/app/adapters/futu_adapter.py", "frontend/src/features/portfolioViews.tsx", "backend/requirements.txt"]
-next: "按 S-001 实施 AKShare、免费/付费源统一管理及前端验证；当前仅完成方案设计"
+next: "验收免费/付费设置与手工账户更新；富途、Marketaux 授权环境及正式 HTTP 页面联调待验证"
 priority: high
 tags: ["market-data", "news", "providers", "akshare", "product"]
 ---
@@ -18,11 +18,11 @@ tags: ["market-data", "news", "providers", "akshare", "product"]
 
 ## 当前进度
 
-2026-10-26 用户要求进入独立的数据接入阶段：免费优先，免费来源默认 AKShare；富途连接归入付费来源作为可选配置；后续开发者接入其他来源时，集中登记并由前端统一展示。本次先补齐 AKShare 行情/新闻与前端交互验证，保留现有账本计算，并兼容未来动态 Agent 框架。当前已将这些要求整理为 [S-001](solutions/P-011/S-001-provider-groups-akshare.md)，尚未实施业务代码、安装 AKShare 或启动服务。
+2026-10-26 已完成 [C-031](../CODE_CHANGE_LOG/C-031-free-paid-akshare.md)：免费默认 AKShare、富途可选付费源与统一来源目录/配置/检测已实现，手工账户可更新行情和新闻。30 项定向检查、17 项离线实际组件交互及构建通过；新建虚拟环境安装成功，无个人 Key、无 .env 且禁止加载富途 SDK 的隔离应用流程取得 3 类行情、500 条日线与 10 条新闻，数量/成本/现金不变。未启动正式前后端或修改真实数据库；正式 HTTP 页面和富途/Marketaux 授权环境仍待验收。
 
 用户表示当前手工录入基本可用，文件导入未检查且后续再优化；这不表示 P-010 所有旧验收自动通过。本阶段不扩大到文件导入、完整历史回填或 Agent 框架迁移。
 
-## 事实依据
+## 实施前事实依据
 
 - 当前 `providers.py` 的 AKShare 是 `StaticProvider` 注册信息；`backend/requirements.txt` 未包含 AKShare，当前项目环境也未安装。`sync.pull_account_market_data()` 仍固定创建富途适配器，配置选项不等于已接通。
 - 当前部分检测把“配置齐全”显示成可用，尚未实际请求数据。前端来源选项另外硬编码，新增来源需要改多处。
@@ -32,7 +32,7 @@ tags: ["market-data", "news", "providers", "akshare", "product"]
 
 ## 目标与有限完成条件
 
-以下均待实施及验证；设计写入或结构检查通过不等于功能完成。
+下列有限目标已完成本批实现和隔离验证，具体证据及未验收范围见 C-031；技术通过不等于正式页面或真实授权验收。
 
 1. 新用户正常安装项目后，默认可使用 AKShare 支持的免费行情，不要求富途/OpenD、证券账户或 API Key；未支持市场明确提示，保留手动更新。
 2. 数据源在一个管理入口分为免费源和付费源；富途可选，未启用或未配置时不影响免费功能。账户所属平台与公共行情来源分开。
@@ -44,4 +44,4 @@ tags: ["market-data", "news", "providers", "akshare", "product"]
 
 ## 方案与关键决定
 
-采用 [P-011/S-001](solutions/P-011/S-001-provider-groups-akshare.md)。本轮仅更新方案与状态入口，不创建虚构的实施 C、不修改业务代码、密钥、账户或数据库。未来实施批次再新增关联 C，记录真实结果和提交。
+采用 [P-011/S-001](solutions/P-011/S-001-provider-groups-akshare.md)。用户随后授权开始实施，结果见 C-031。AKShare 股票/ETF 使用其新浪接口，基金/新闻使用东方财富接口；SDK 进程设超时，保留原始价格日期，免费失败不静默调用付费源。统一配置不迁移投资账户，账本计算继续复用固定服务。
