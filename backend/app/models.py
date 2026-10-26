@@ -144,6 +144,7 @@ class PositionSnapshot(Base):
     market: Mapped[str] = mapped_column(String, default="")
     asset_type: Mapped[str] = mapped_column(String, default="stock")
     unit: Mapped[str] = mapped_column(String, default="")
+    reconciliation_data: Mapped[dict] = mapped_column(JSON, default=dict)
     quantity: Mapped[float] = mapped_column(Float, default=0)
     average_cost: Mapped[float] = mapped_column(Float, default=0)
     current_price: Mapped[float] = mapped_column(Float, default=0)

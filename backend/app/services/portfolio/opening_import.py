@@ -116,7 +116,8 @@ def confirm(db, preview):
         if marker.get("digest") == digest and marker.get("signature") == signature(old):
             return {"status": "已导入", "inserted_count": 0, "updated_count": 0}
         raise ValueError("账户已有记账起点；请使用起点纠错，持仓文件仅用于核对，不能覆盖账目")
-    payload = deepcopy(preview["opening_payload"])
+    from .security_names import existing_names, reuse_names
+    payload = reuse_names(preview["opening_payload"], existing_names(db))
     def write():
         service.save_opening(db, aid, payload, commit=False)
         db.flush()

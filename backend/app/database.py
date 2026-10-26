@@ -50,6 +50,7 @@ def _ensure_sqlite_columns() -> None:
             for column, definition in {
                 "batch_id": "integer", "cost_method": "varchar default 'unknown'",
                 "unit": "varchar default ''",
+                "reconciliation_data": "json default '{}'",
                 "cost_cny_amount": "numeric(24,8)", "is_void": "boolean default 0",
             }.items():
                 if column not in position_columns:

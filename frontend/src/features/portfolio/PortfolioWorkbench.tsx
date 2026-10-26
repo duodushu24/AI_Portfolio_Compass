@@ -5,7 +5,7 @@ import { Alert, Button, Checkbox, Drawer, Modal, Select, Table } from "@arco-des
 import type { AccountSummary } from "../../api";
 import { portfolioApi } from "./api";
 import { accountLabel, labels, numeric, timeLabel } from "./PortfolioPanel";
-import type { DataNeed, HistoryEntry, HistoryPreview, Opening, OpeningAsset, Portfolio, Reconciliation, RecordItem } from "./types";
+import type { DataNeed, HistoryEntry, HistoryPreview, Opening, OpeningAsset, Portfolio, RecordItem } from "./types";
 
 const local = (v?: string | null) => { const d = v ? new Date(v) : new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19); };
 const utc = (v: string) => new Date(v).toISOString();
@@ -24,7 +24,7 @@ function fxPayload(values: Fields, at: string, original: Opening["fx"] = {}) { r
 
 export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAccount, revision = 0 }: { accountId: string; accounts: AccountSummary[]; onChanged: () => Promise<void>; onSelectAccount: (id: string) => void; revision?: number }) {
   const [data, setData] = useState<Portfolio | null>(null), [error, setError] = useState("");
-  const [opening, setOpening] = useState<{ confirmed: boolean; opening: Opening } | null>(null), [reconciliation, setReconciliation] = useState<Reconciliation[]>([]);
+  const [opening, setOpening] = useState<{ confirmed: boolean; opening: Opening } | null>(null);
   const [editor, setEditor] = useState<{ kind: string; record?: RecordItem } | null>(null);
   const request = useRef(0);
   async function reload() {
@@ -32,7 +32,7 @@ export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAcc
     const id = ++request.current;
     try {
       const [result, initial] = await Promise.all([portfolioApi.overview(accountId, "", "", "records"), portfolioApi.opening(accountId)]);
-      if (id === request.current) { setData(result); setOpening(initial); setReconciliation(initial.reconciliation); setError(""); }
+      if (id === request.current) { setData(result); setOpening(initial); setError(""); }
     } catch (e) { if (id === request.current) setError(e instanceof Error ? e.message : "读取失败"); }
   }
   useEffect(() => { setEditor(null); }, [accountId]);
@@ -43,7 +43,6 @@ export function PortfolioWorkbench({ accountId, accounts, onChanged, onSelectAcc
   return <div className="stack">
     <section className="panel stack"><div className="portfolio-toolbar"><div><h3>账户记账</h3><small>{confirmed ? "买卖自动维护摊薄成本和现金；更新市值自动保存收益点。" : "从首笔交易前的现金开始，或确认已有持仓作为统计起点。"}</small></div><Select aria-label="记账账户" value={accountId} options={accounts.map(a => ({ value: a.account_id, label: accountLabel(a.account_id, accountNames) }))} onChange={onSelectAccount} /><div className="inline-actions"><Button onClick={() => setEditor({ kind: "opening" })} disabled={!opening}>{confirmed ? "账户起点 / 纠错" : "手工建立起点"}</Button><Button type="primary" disabled={!confirmed} onClick={() => setEditor({ kind: "trade" })}>记录买卖</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "dividend" })}>记录分红</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "funds" })}>记录资金</Button><Button disabled={!confirmed} onClick={() => setEditor({ kind: "valuation" })}>更新市值</Button>{confirmed && <Button onClick={() => setEditor({ kind: "history" })}>补录更早历史</Button>}</div></div>
       {error && <Alert type="error" content={error} />}
-      {!!reconciliation.length && <Alert type={reconciliation.some(d => d.status === "mismatch") ? "warning" : "info"} content={<details><summary>{reconciliation.some(d => d.status === "mismatch") ? "来源资料与同一时点账目存在差异" : "部分来源日期尚未纳入统计范围"}</summary>{reconciliation.map(d => <p key={`${d.code}:${d.currency}:${d.source_at}`}>{d.code} · {timeLabel(d.source_at)} · {d.reason}{d.status === "mismatch" && <>；数量 {d.source_quantity} / {d.ledger_quantity}；摊薄成本 {numeric(d.source_average_cost)} / {numeric(d.ledger_average_cost)} {d.currency}（来源 / 同时点账目）</>}</p>)}<p>核对只比较相同日期；旧来源资料保留，不覆盖自动账目。</p></details>} />}
       {confirmed && <Table rowKey={r => `${r.category}:${r.id}`} data={data?.records ?? []} pagination={{ pageSize: 8 }} scroll={{ x: 900 }} columns={[
         { title: "实际时间", dataIndex: "effective_at", render: timeLabel }, { title: "事项", render: (_, r: RecordItem) => `${labels[r.kind]}${r.is_void ? "（已作废）" : ""}` },
         { title: "内容", render: (_, r: RecordItem) => r.kind === "trade" ? `${r.data.code} · ${r.data.side === "BUY" ? "买入" : "卖出"} ${r.data.quantity} × ${r.data.price} · 费用 ${r.data.fees} ${r.data.currency}` : r.kind === "valuation" ? "价格 / 净值 / 汇率更新" : r.kind === "share_credit" ? `${r.data.code} · 红股入账 ${r.data.quantity}` : `${r.data.amount ?? ""} ${r.data.currency ?? ""}${r.data.to_account_id ? ` → ${accountLabel(String(r.data.to_account_id), accountNames)}` : ""} · ${r.data.note ?? ""}` },

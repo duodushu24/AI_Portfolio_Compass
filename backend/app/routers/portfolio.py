@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.services.portfolio import service
+from app.services.portfolio import service, source_records, security_names
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -37,7 +37,30 @@ def point(at: datetime, event_type: str, owner_id: str, account_id: str = "all",
 def opening(account_id: str, db: Session = Depends(get_db)):
     result = service.overview(db, account_id, view="current")["openings"]
     return call(lambda: {"confirmed": bool(result), "opening": result[0] if result else service.source_opening(db, account_id),
-                         "reconciliation": service.reconcile(db, account_id) if result else []})
+                         "reconciliation": []})
+
+
+@router.get("/accounts/{account_id}/sources")
+def sources(account_id: str, db: Session = Depends(get_db)):
+    return call(lambda: source_records.list_records(db, account_id))
+
+
+@router.patch("/accounts/{account_id}/sources/{record_id}")
+def edit_source(account_id: str, record_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
+    return call(lambda: source_records.update_record(db, account_id, record_id, payload))
+
+
+@router.post("/accounts/{account_id}/sources/reconcile")
+def reconcile_sources(account_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    ids = payload.get("source_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 1000 or any(type(i) is not int for i in ids):
+        raise HTTPException(400, "请选择 1—1000 条导入记录进行核对")
+    return call(lambda: {"items": source_records.reconcile(db, account_id, ids, include_equal=True)})
+
+
+@router.put("/securities/name")
+def rename_security(payload: dict = Body(...), db: Session = Depends(get_db)):
+    return call(lambda: security_names.rename(db, payload.get("code"), payload.get("name"), payload.get("market")))
 
 
 @router.put("/accounts/{account_id}/opening")

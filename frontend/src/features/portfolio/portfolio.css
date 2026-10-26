@@ -12,6 +12,9 @@
 .portfolio-compact-table .portfolio-asset-cell small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
 .portfolio-name-button{display:block;background:none;border:0;padding:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-1,#1d2129);font:inherit;font-weight:600;text-align:left;cursor:pointer}
 .portfolio-name-button:hover{color:rgb(var(--primary-6,22,93,255))}.portfolio-name-button:disabled{cursor:default;opacity:1}
+.portfolio-name-row{display:flex;align-items:center;gap:5px;min-width:0}.portfolio-name-row .portfolio-name-button{min-width:0}
+.portfolio-name-edit{flex:none;opacity:0;border:0;background:transparent;color:var(--color-text-3);padding:3px;cursor:pointer;line-height:1}.portfolio-asset-cell:hover .portfolio-name-edit,.portfolio-asset-cell:focus-within .portfolio-name-edit{opacity:1}.portfolio-name-edit:hover{color:rgb(var(--primary-6,22,93,255))}
+@media(hover:none){.portfolio-name-edit{opacity:1}}
 .portfolio-column-controls{display:flex;justify-content:flex-end;margin-bottom:10px;color:var(--color-text-3)}
 .portfolio-quote-mark{color:var(--color-text-3);font-size:10px;margin-left:3px}
 .portfolio-holding-filters{display:flex;gap:12px;align-items:center}.portfolio-holding-filters .arco-input-group-wrapper{width:220px}

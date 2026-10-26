@@ -881,7 +881,7 @@ def account_data_overview(account_id: str, db: Session = Depends(get_db)) -> dic
     return {
         "ledger_enrolled": ledger_enrolled,
         "ledger_positions": [p.ledger_result for p in ledger_positions],
-        "reconciliation": portfolio_service.reconcile(db, account_id) if ledger_enrolled else [],
+        "reconciliation": [],
         "account": _account_to_dict(account, snapshot),
         "asset_snapshot": _asset_snapshot_to_dict(snapshot) if snapshot else None,
         "positions": [_position_to_dict(item) for item in positions],

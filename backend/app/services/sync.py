@@ -221,6 +221,14 @@ def _mark_account_pull_states(db: Session, account: Account, positions: list[Pos
 
 
 def persist_snapshot(db: Session, sync_id: str, snapshot) -> tuple[int, int]:
+    from app.services.portfolio.security_names import existing_names, reuse_names, security_code
+    names = existing_names(db)
+    snapshot.positions = reuse_names(snapshot.positions, names)
+    for item in snapshot.deals:
+        raw = item.get("raw_payload") or {}
+        code = security_code(item.get("code"), item.get("market"))
+        if code in names:
+            item["raw_payload"] = {**raw, "name": names[code]}
     inserted = 0
     updated = 0
     now = datetime.now(timezone.utc)

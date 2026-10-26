@@ -7,6 +7,8 @@ import { Alert, Button, Checkbox, Descriptions, Drawer, Dropdown, Empty as ArcoE
 import { api, AccountDataOverview, AccountDeal, AccountSummary, AIAnalysis, AIConfigResponse, AIRuntimeConfig, AIWorkflowRun, Dashboard, DealPayload, DecisionCard, HealthStatus, ImportPreview, InvestorPreference, KLineItem, KLineResponse, NewsItem, Position, PositionSnapshotPayload, Profile, ProviderState, Review, TradeIntentPlan, TradeIntentTags, TradeReview, TradeReviewList, WorkflowArtifact, WorkflowStep } from "../api";
 import { OpeningEditor, PortfolioWorkbench } from "./portfolio/PortfolioWorkbench";
 import { AssetTable, PortfolioPanel } from "./portfolio/PortfolioPanel";
+import { SourceRecords } from "./portfolio/SourceRecords";
+import { RenameSecurity } from "./portfolio/RenameSecurity";
 
 const layers = ["全部", "核心长期仓", "中期配置仓", "短期交易仓", "期权仓", "遗留观察仓"];
 const intentTagGroups: Array<{ key: keyof TradeIntentTags; title: string; items: string[] }> = [
@@ -625,7 +627,7 @@ export function AccountDataPage({ accounts, health, emptySystem, onChanged, onIm
       {activeTab === "data" ? (
         <>
           {emptySystem ? <FutuConnectionCard health={health} onRefresh={onRefreshHealth} onSync={onRefresh} /> : null}
-          <DataPage accounts={accounts} onImported={onImported} setNotice={setNotice} requestConfirm={requestConfirm} onRefresh={onRefresh} loading={loading} showAccountManagementLink onOpenAccounts={() => setActiveTab("accounts")} />
+          <DataPage accounts={accounts} onImported={onImported} onChanged={onChanged} setNotice={setNotice} requestConfirm={requestConfirm} onRefresh={onRefresh} loading={loading} showAccountManagementLink onOpenAccounts={() => setActiveTab("accounts")} />
         </>
       ) : (
         <AccountsAdminPage accounts={accounts} onChanged={onChanged} setNotice={setNotice} requestConfirm={requestConfirm} onConnectFutu={async () => { setActiveTab("data"); await onRefresh(); }} />
@@ -3027,7 +3029,7 @@ export function Checklist({ title, items, emptyText = "暂无" }: { title: strin
   );
 }
 
-export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRefresh, loading, showAccountManagementLink = true, onOpenAccounts }: { accounts: AccountSummary[]; onImported: () => Promise<void>; setNotice: (notice: string) => void; requestConfirm: (options: ConfirmOptions) => Promise<boolean>; onRefresh: () => Promise<void>; loading: boolean; showAccountManagementLink?: boolean; onOpenAccounts?: () => void }) {
+export function DataPage({ accounts, onImported, onChanged = onImported, setNotice, requestConfirm, onRefresh, loading, showAccountManagementLink = true, onOpenAccounts }: { accounts: AccountSummary[]; onImported: () => Promise<void>; onChanged?: () => Promise<void>; setNotice: (notice: string) => void; requestConfirm: (options: ConfirmOptions) => Promise<boolean>; onRefresh: () => Promise<void>; loading: boolean; showAccountManagementLink?: boolean; onOpenAccounts?: () => void }) {
   // Sync enablement does not limit manual bookkeeping or performance membership.
   const enabledAccounts = accounts;
   const [activeAccountId, setActiveAccountId] = useState(enabledAccounts[0]?.account_id ?? "");
@@ -3071,7 +3073,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
       return;
     }
     let cancelled = false;
-    setOverview(null);
+    setOverview(previous => previous?.account.account_id === activeAccountId ? previous : null);
     api.accountDataOverview(activeAccountId)
       .then(result => { if (!cancelled) setOverview(result); })
       .catch((error) => { if (!cancelled) setNotice(error instanceof Error ? error.message : "账户数据加载失败"); });
@@ -3269,6 +3271,7 @@ export function DataPage({ accounts, onImported, setNotice, requestConfirm, onRe
         onAddPosition={() => setEditingPosition("new")}
         onEditPosition={(position) => setEditingPosition(position)}
         onDeletePosition={deletePosition}
+        onSourcesChanged={async () => { await onChanged(); setOverview(await api.accountDataOverview(activeAccountId)); }}
         onAddDeal={() => setEditingDeal("new")}
         onEditDeal={(deal) => setEditingDeal(deal)}
         onDeleteDeal={deleteDeal}
@@ -3331,12 +3334,13 @@ export function AccountFilterBar({ accounts, activeAccount, overview, showAccoun
   );
 }
 
-export function DataActions({ canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, label = "导入数据", importContext = "position" }: { canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; label?: string; importContext?: "position" | "deal" }) {
+export function DataActions({ canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, label = "导入数据", importContext = "position", onSources }: { canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; label?: string; importContext?: "position" | "deal"; onSources?: () => void }) {
   const disabled = importing || loading || downloadingTemplate;
   const contextLabel = importContext === "position" ? "持仓" : "成交";
   const excelInputRef = useRef<HTMLInputElement | null>(null);
   const droplist = (
     <Menu>
+      {onSources && <Menu.Item key="sources" onClick={onSources}>导入记录</Menu.Item>}
       {canImportApi ? <Menu.Item key="api" onClick={onRefreshApiData}>API 刷新{contextLabel}数据</Menu.Item> : null}
       {canImportLocal ? (
         <>
@@ -3472,6 +3476,7 @@ export function DataDetailTabs({
   onAddPosition,
   onEditPosition,
   onDeletePosition,
+  onSourcesChanged,
   onAddDeal,
   onEditDeal,
   onDeleteDeal,
@@ -3500,6 +3505,7 @@ export function DataDetailTabs({
   onAddPosition: () => void;
   onEditPosition: (position: Position) => void;
   onDeletePosition: (position: Position) => void;
+  onSourcesChanged: () => Promise<void>;
   onAddDeal: () => void;
   onEditDeal: (deal: AccountDeal) => void;
   onDeleteDeal: (deal: AccountDeal) => void;
@@ -3508,7 +3514,8 @@ export function DataDetailTabs({
 }) {
   const isPositionTab = activeDataTab === "positions";
   const [detailCode, setDetailCode] = useState("");
-  useEffect(() => { setDetailCode(""); }, [activeAccount.account_id]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  useEffect(() => { setDetailCode(""); setSourcesOpen(false); }, [activeAccount.account_id]);
   const apiOnlySources = [
     { key: "quotes", dataType: "quote", title: "行情数据", updatedAt: overview?.updated_at.quote, ready: Boolean(overview?.updated_at.quote), note: "按当前账户持仓标的检测行情 API，并可拉取一次行情缓存。" },
     { key: "news", dataType: "news", title: "新闻数据", updatedAt: overview?.updated_at.news, ready: Boolean(overview?.updated_at.news), note: "按当前账户持仓标的检测新闻 API，并可拉取一次新闻缓存。" },
@@ -3557,10 +3564,11 @@ export function DataDetailTabs({
                 onChooseImport={onChooseImport}
                 onRefreshApiData={onRefreshApiData}
                 onAdd={onAddPosition}
+                onSources={() => setSourcesOpen(true)}
               />
             </div>
-            {overview?.ledger_enrolled ? <><AssetTable assets={(overview.ledger_positions ?? []).filter(p => Number(p.quantity) > 0)} maskAssets={assetMaskEnabled} accountNames={Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]))} onOpen={setDetailCode} />
-              <small className="metadata-note">点击标的查看成交历史。已清仓查询独立列出历次退出；下方账户记账维护买卖、资金和市值。</small></> : <AccountPositionsTable readOnly deletable positions={(overview?.positions ?? []).filter(p => p.quantity > 0)} onEdit={onEditPosition} onDelete={onDeletePosition} />}
+            {overview?.ledger_enrolled ? <><AssetTable assets={(overview.ledger_positions ?? []).filter(p => Number(p.quantity) > 0)} maskAssets={assetMaskEnabled} accountNames={Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]))} onOpen={setDetailCode} onRenamed={onSourcesChanged} />
+              <small className="metadata-note">点击标的查看成交历史。已清仓查询独立列出历次退出；下方账户记账维护买卖、资金和市值。</small></> : <AccountPositionsTable readOnly deletable positions={(overview?.positions ?? []).filter(p => p.quantity > 0)} onEdit={onEditPosition} onDelete={onDeletePosition} onRenamed={onSourcesChanged} />}
           </div>
         </Tabs.TabPane>
         <Tabs.TabPane key="closed" title="已清仓查询"><ClosedPositions accountId={activeAccount.account_id} accounts={accounts} revision={overview} maskAssets={assetMaskEnabled} /></Tabs.TabPane>
@@ -3615,11 +3623,12 @@ export function DataDetailTabs({
         ))}
       </Tabs>
       {detailCode && <Drawer title="标的成交历史" visible width={1100} footer={null} onCancel={() => setDetailCode("")}><AssetHistory accountId={activeAccount.account_id} code={detailCode} maskAssets={assetMaskEnabled} /></Drawer>}
+      {sourcesOpen && <SourceRecords key={activeAccount.account_id} accountId={activeAccount.account_id} onClose={() => setSourcesOpen(false)} onChanged={onSourcesChanged} />}
     </section>
   );
 }
 
-export function DataTableActions({ isPositionTab, canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, onAdd, readOnly = false }: { isPositionTab: boolean; canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; onAdd: () => void; readOnly?: boolean }) {
+export function DataTableActions({ isPositionTab, canImportApi, canImportLocal, importing, loading, downloadingTemplate, showAccountManagementLink, onOpenAccounts, onDownloadTemplate, onChooseImport, onRefreshApiData, onAdd, readOnly = false, onSources }: { isPositionTab: boolean; canImportApi: boolean; canImportLocal: boolean; importing: boolean; loading: boolean; downloadingTemplate: boolean; showAccountManagementLink: boolean; onOpenAccounts?: () => void; onDownloadTemplate: () => Promise<void>; onChooseImport: (file: File | null) => Promise<void>; onRefreshApiData: () => Promise<void>; onAdd: () => void; readOnly?: boolean; onSources?: () => void }) {
   return (
     <div className="data-table-actions">
       {!readOnly && <Button type="primary" onClick={onAdd}>新增数据</Button>}
@@ -3636,6 +3645,7 @@ export function DataTableActions({ isPositionTab, canImportApi, canImportLocal, 
         onRefreshApiData={onRefreshApiData}
         label="导入数据"
         importContext={isPositionTab ? "position" : "deal"}
+        onSources={onSources}
       />
     </div>
   );
@@ -4002,7 +4012,7 @@ export function positionFormToPayload(form: PositionSnapshotForm, original?: Pos
   };
 }
 
-export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = false, deletable = !readOnly }: { positions: Position[]; onEdit: (position: Position) => void; onDelete: (position: Position) => void; readOnly?: boolean; deletable?: boolean }) {
+export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = false, deletable = !readOnly, onRenamed }: { positions: Position[]; onEdit: (position: Position) => void; onDelete: (position: Position) => void; readOnly?: boolean; deletable?: boolean; onRenamed?: () => Promise<void> }) {
   const accountPositionsTable = useResizableTableColumns({
     name: 170,
     code: 140,
@@ -4043,7 +4053,7 @@ export function AccountPositionsTable({ positions, onEdit, onDelete, readOnly = 
             dataIndex: "name",
             ...accountPositionsTable.columnProps("name"),
             sorter: (a: Position, b: Position) => (a.name || a.code).localeCompare(b.name || b.code),
-            render: (_value, item: Position) => <span className="table-main-cell"><strong>{item.name || item.code}</strong></span>,
+            render: (_value, item: Position) => <span className="table-main-cell portfolio-asset-cell"><span className="portfolio-name-row"><strong>{item.name || item.code}</strong>{onRenamed && <RenameSecurity code={item.code} name={item.name} market={item.market} onSaved={onRenamed} />}</span></span>,
           },
           { title: "代码", dataIndex: "code", ...accountPositionsTable.columnProps("code"), sorter: (a: Position, b: Position) => a.code.localeCompare(b.code) },
           {

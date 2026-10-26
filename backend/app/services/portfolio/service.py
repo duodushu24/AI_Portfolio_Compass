@@ -613,58 +613,8 @@ def projection_accounts(db, account_id=None):
 
 
 def reconcile(db, account_id):
-    from app.services.holding_history import positions_as_of
-    opening = db.get(PortfolioOpening, account_id)
-    if not opening:
-        return []
-    account = db.get(Account, account_id)
-    history = facts(db)
-    cache = {}
-    def at_time(at):
-        at = instant(at)
-        if at not in cache:
-            cache[at] = replay(*history, scope=account_id, until=at, compact=True)["current"]
-        return cache[at]
-    differences = []
-    seen = set()
-    def compare(code, curr, unit, at, q, avg=None, compare_cost=False):
-        marker = (code, curr, unit, instant(at))
-        if marker in seen:
-            return
-        seen.add(marker)
-        current = at_time(at)
-        p = next((p for p in current["positions"] if key(p) == (code, curr, unit)), None) if current else None
-        item = {"code": code, "currency": curr, "unit": unit, "source_at": iso(at), "source_quantity": str(q),
-                "source_average_cost": str(avg) if compare_cost else None}
-        if instant(at) < opening.effective_at:
-            differences.append({**item, "status": "uncovered", "ledger_quantity": None, "ledger_average_cost": None,
-                                "reason": "来源日期早于账户统计起点，暂无法核对"})
-            return
-        quantity, average = (p["quantity"], p["average_cost"]) if p else (ZERO, None)
-        quantity_differs = abs(quantity - number(q)) > Decimal("0.00000001")
-        cost_differs = compare_cost and quantity > ZERO and (average is None or abs(average - number(avg)) > Decimal("0.000001"))
-        if quantity_differs or cost_differs:
-            differences.append({**item, "status": "mismatch", "ledger_quantity": str(quantity),
-                "ledger_average_cost": str(average) if average is not None else None,
-                "reason": "同一时点的数量不同" if quantity_differs else "同一时点的摊薄成本不同"})
-    for row in positions_as_of(db, account_id):
-        compare(row.code, row.raw_currency or account.base_currency, asset_unit(row.asset_type, row.unit),
-                row.snapshot_time, row.quantity, row.average_cost, row.cost_method == "diluted")
-    # Only a full observation proves that unlisted assets were absent. Partial imports do not.
-    full_scopes = {}
-    for batch in db.scalars(select(HoldingObservationBatch).where(HoldingObservationBatch.account_id == account_id,
-            HoldingObservationBatch.completeness == "full").order_by(HoldingObservationBatch.observed_at, HoldingObservationBatch.id)):
-        full_scopes[batch.market] = batch
-    for market, batch in full_scopes.items():
-        current = at_time(batch.observed_at)
-        if current is None:
-            continue
-        rows = positions_as_of(db, account_id, batch.observed_at)
-        source_keys = {(r.code, r.raw_currency or account.base_currency, asset_unit(r.asset_type, r.unit)) for r in rows}
-        for p in current["positions"]:
-            if p["quantity"] and (not market or p["market"] == market) and key(p) not in source_keys:
-                compare(p["code"], p["currency"], p["unit"], batch.observed_at, ZERO)
-    return differences
+    from .source_records import reconcile as reconcile_sources
+    return reconcile_sources(db, account_id)
 
 
 def ingest_quotes(db, rows, source):

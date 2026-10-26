@@ -605,7 +605,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   const base = apiBase();
   // These POST endpoints only parse or roll back a trial. Treating them as writes
   // refreshes the workbench and unmounts an in-progress opening correction.
-  const previewing = options?.method?.toUpperCase() === "POST" && /^\/api\/(?:import\/[^/]+\/preview|portfolio\/accounts\/[^/]+\/(?:opening\/preview|history\/preview))(?:\?|$)/.test(path);
+  const previewing = options?.method?.toUpperCase() === "POST" && /^\/api\/(?:import\/[^/]+\/preview|portfolio\/accounts\/[^/]+\/(?:opening\/preview|history\/preview|sources\/reconcile))(?:\?|$)/.test(path);
   if (previewing) return fetchJson<T>(base, path, options);
   const reading = !options?.method || options.method.toUpperCase() === "GET";
   if (reading) {

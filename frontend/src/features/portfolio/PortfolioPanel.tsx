@@ -4,6 +4,7 @@ import { Alert, Button, Drawer, Select, Table, Tag, Tooltip } from "@arco-design
 import { portfolioApi } from "./api";
 import type { Asset, ChartPoint, DataNeed, Point, Portfolio } from "./types";
 import { PortfolioChart } from "./PortfolioChart";
+import { RenameSecurity } from "./RenameSecurity";
 import { calendarDay, pointDay, profitMetrics, isTotalMetric } from "./chartLayout";
 import type { ProfitMetric } from "./chartLayout";
 import "./portfolio.css";
@@ -15,15 +16,15 @@ const observationLabel = pointDay;
 export const accountLabel = (id: string, names: Record<string, string> = {}) => names[id] || "未命名账户";
 export const labels: Record<string, string> = { opening: "建档", include: "纳入组合", exclude: "移出组合", trade: "买卖", valuation: "更新市值", deposit: "入金", withdrawal: "出金", transfer: "账户转账", dividend: "分红", interest: "利息", fee: "费用", fx: "换汇", subscription: "待确认申购", settle: "赎回到账", cancel_subscription: "申购撤回", split: "拆分", share_credit: "红股入账", position_transfer: "转托管" };
 
-export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = {}, asOf, showQuoteDate = false }: { assets: Asset[]; onOpen?: (code: string) => void; maskAssets?: boolean; accountNames?: Record<string, string>; asOf?: string; showQuoteDate?: boolean }) {
+export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = {}, asOf, showQuoteDate = false, onRenamed }: { assets: Asset[]; onOpen?: (code: string) => void; maskAssets?: boolean; accountNames?: Record<string, string>; asOf?: string; showQuoteDate?: boolean; onRenamed?: () => void | Promise<void> }) {
   const money = (v: string | null, digits = 2) => maskAssets ? "••••" : v == null ? "—" : Number(v).toLocaleString("zh-CN", { maximumFractionDigits: digits });
   const signed = (v: string | null) => <span className={!maskAssets && v != null ? Number(v) > 0 ? "gain" : Number(v) < 0 ? "loss" : "" : ""}>{money(v)}</span>;
   return <div className="portfolio-holdings-table">
     <Table className="portfolio-compact-table" tableLayoutFixed rowKey={a => `${a.account_id}:${a.code}:${a.currency}:${a.unit}`} data={assets} pagination={{ pageSize: 10 }} scroll={{ x: showQuoteDate ? 1230 : 1110 }}
       expandProps={{ rowExpandable: (a: Asset) => (a.account_positions?.length ?? 0) > 1 }}
-      expandedRowRender={a => a.account_positions && <AssetTable assets={a.account_positions} onOpen={onOpen} maskAssets={maskAssets} accountNames={accountNames} asOf={asOf} showQuoteDate={showQuoteDate} />}
+      expandedRowRender={a => a.account_positions && <AssetTable assets={a.account_positions} onOpen={onOpen} maskAssets={maskAssets} accountNames={accountNames} asOf={asOf} showQuoteDate={showQuoteDate} onRenamed={onRenamed} />}
       columns={[
-      { title: "标的", width: 190, render: (_, a: Asset) => <div className="portfolio-asset-cell"><button type="button" className="portfolio-name-button" onClick={() => onOpen?.(a.code)} disabled={!onOpen}>{a.name || a.code}</button><small>{a.code}</small><small>{a.account_id === "all" ? `${a.account_positions?.length ?? 1} 个账户` : accountLabel(a.account_id, accountNames)}</small></div> },
+      { title: "标的", width: 190, render: (_, a: Asset) => <div className="portfolio-asset-cell"><div className="portfolio-name-row"><button type="button" className="portfolio-name-button" onClick={() => onOpen?.(a.code)} disabled={!onOpen}>{a.name || a.code}</button>{onRenamed && <RenameSecurity code={a.code} name={a.name} market={a.market} onSaved={onRenamed} />}</div><small>{a.code}</small><small>{a.account_id === "all" ? `${a.account_positions?.length ?? 1} 个账户` : accountLabel(a.account_id, accountNames)}</small></div> },
       { title: "币种", dataIndex: "currency", width: 65 },
       { title: "数量", align: "right", width: 85, render: (_, a: Asset) => <Tooltip content={`数量单位：${unitLabel(a.unit)}`}><span>{money(a.quantity, 6)}</span></Tooltip> },
       { title: "成本价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={`本阶段买入支出减卖出净收入、净分红，再除以剩余数量。单位价格，${priceUnit(a.currency, a.unit)}`}><span>{money(a.average_cost, 4)}</span></Tooltip> },

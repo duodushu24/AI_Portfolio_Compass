@@ -29,6 +29,10 @@ export function ReturnHistoryPanel({ accounts, maskAssets, onChanged, onOpen }: 
     await onChanged();
     setPortfolio(await portfolioApi.overview("all"));
   }
+  async function renamed() {
+    await onChanged();
+    setPortfolio(await portfolioApi.overview("all"));
+  }
   async function readLegacy() {
     try { const [series, holdings] = await Promise.all([api.returnSeries("all", "CNY"), api.holdingHistory("all", "")]); setLegacy({ points: series.items, holdings: holdings.items }); setError(""); }
     catch (e) { setError(e instanceof Error ? e.message : "读取失败"); }
@@ -42,7 +46,7 @@ export function ReturnHistoryPanel({ accounts, maskAssets, onChanged, onOpen }: 
         <div className="portfolio-allocation">{portfolio.allocation.map(a => <div key={a.type}><span>{allocationLabels[a.type] || a.type}</span><div className="allocation-track"><i style={{ width: `${Math.min(100, Math.max(0, Number(a.weight) * 100))}%` }} /></div><strong>{percent(a.weight)}</strong></div>)}</div>
       </section>
       <section className="panel stack"><div className="portfolio-toolbar"><div><h3>当前持仓</h3><small>账户筛选仅影响本表；仓位始终以整体组合总资产为分母。</small></div><div className="portfolio-holding-filters"><Input.Search aria-label="组合持仓搜索" placeholder="名称或代码" value={keyword} onChange={setKeyword} /><Select aria-label="持仓账户筛选" value={account} onChange={setAccount} options={[{ value: "all", label: "全部账户" }, ...accounts.map(a => ({ value: a.account_id, label: accountNames[a.account_id] }))]} /></div></div>
-        <AssetTable assets={filtered} onOpen={onOpen} maskAssets={maskAssets} accountNames={accountNames} showQuoteDate />
+        <AssetTable assets={filtered} onOpen={onOpen} maskAssets={maskAssets} accountNames={accountNames} showQuoteDate onRenamed={renamed} />
       </section>
     </>}
     {supplement?.opening && <OpeningEditor initial={supplement.opening} confirmed focusNeed={supplement.need} onClose={() => setSupplement(null)} onSaved={savedSupplement} />}

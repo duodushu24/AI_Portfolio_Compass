@@ -147,6 +147,8 @@ def link_existing_dividends(db, account_id, batch):
 
 
 def replace_ledger(db, account_id, batch, *, commit=False):
+    from .security_names import existing_names, reuse_names
+    batch = {**batch, "records": reuse_names(batch["records"], existing_names(db))}
     account = db.get(Account, account_id)
     if not account or "广发" not in ((account.display_name or "") + (account.institution or "")):
         raise ValueError("目标必须是已存在的广发账户")
