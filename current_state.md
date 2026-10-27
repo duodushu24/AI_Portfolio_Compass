@@ -20,6 +20,8 @@ updated: "2026-10-27"
 
 ## 当前焦点与范围
 
+2026-10-27 已完成 [P-011](issues/P-011-market-news-data-sources.md) / [P-005](issues/P-005-portfolio-return-history.md) 的 [C-034](CODE_CHANGE_LOG/C-034-all-account-market-refresh-filters.md)：资产组合右侧增加“更新全部市值”，依次复用所有账户原配置和先汇率后行情流程，单个失败继续，完成后汇总并刷新；账户记账“事项”列可多选筛选、重置，切换账户清除条件。仅前端改动，构建及 15 项离线页面交互通过，截图已核对。未启动/重启前后端或修改真实账目，实际账户使用待验收。
+
 2026-10-27 已完成 [P-011](issues/P-011-market-news-data-sources.md) / [C-033](CODE_CHANGE_LOG/C-033-akshare-worker-utf8.md)：修复 Windows 默认 GBK 下 AKShare 子进程输出与父进程解码不一致导致的基金更新失败；固定子进程 UTF-8 并返回明确编码提示，无需重新录入基金。6 项定向检查及 TypeScript 检查通过；默认 GBK 条件下，真实 SDK 经应用服务对虚构内存账户更新两只基金成功，净值日期均为 2026-10-26，现金、数量和成本不变。未改真实账目或启动/重启服务，实际账户仍待验收。
 
 2026-10-27 已完成 [P-011](issues/P-011-market-news-data-sources.md) / [P-006](issues/P-006-bank-gold.md) 的 [C-032](CODE_CHANGE_LOG/C-032-us-gold-fx-first.md)：在 C-031 统一免费/付费目录上补齐美股股票/ETF、国际 XAU 参考金价折算及 USD/HKD 日度汇率。手动更新严格先取并保存 FX，再取价格；失败沿用最近有效汇率及原日期，较旧数据不覆盖新数据，不使用固定值进入收益。自动 FX 从接收时刻可用，历史成交成本与原币账目不变。51 项不同定向检查、12 项离线页面交互及构建覆盖通过；无 Key/无 OpenD 隔离应用实取 4 条价格与 750 条日线，验证 FX→价格顺序。未启动正式前后端、未改真实账目；正式 HTTP 页面及实际账户操作待验收。当前设计见 [P-011/S-001 第 9 节](issues/solutions/P-011/S-001-provider-groups-akshare.md#9-2026-10-27-扩展美股国际金价与汇率优先更新)。
@@ -74,13 +76,13 @@ P-002 继续暂停：P-001 的日记验收前置已满足，但首条个人证�
 | ID | 标题 | 状态 | 下一步 / 恢复条件 |
 |---|---|---|---|
 | [P-002](issues/P-002-evidence-reflection.md) | 基于个人证据的复盘流程 | paused | 确认首条个人证据复盘的输入、输出和完成条件后再恢复 |
-| [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 验收历史汇率沿用后的人民币成本与清仓折算，以及后续手工更新和历史纠错 |
+| [P-005](issues/P-005-portfolio-return-history.md) | 全账户持仓记录与收益统计 | active | 验收账户事项筛选、历史汇率沿用后的人民币成本与清仓折算，以及手工更新和历史纠错 |
 | [P-006](issues/P-006-bank-gold.md) | 银行黄金按克记账 | active | 验收黄金参考市值、实际成交费用、清仓收益及更新日期 |
 | [P-007](issues/P-007-diluted-cost-dividends.md) | 唯一摊薄成本与现金分红收益归属 | active | 验收手工分红的现金与成本同步、清仓重置及纠错作废 |
 | [P-008](issues/P-008-data-loading-performance.md) | 数据页加载延迟与重复账本重放 | active | 用户实际验收首页、资产组合与账户数据的加载和切换速度 |
 | [P-009](issues/P-009-function-architecture-review.md) | 功能设计与代码架构评审 | active | 依据 P-010/C-023 实现和用户试用结果复核剩余问题，不自动扩展开发范围 |
 | [P-010](issues/P-010-account-onboarding-profit-carry.md) | 统一账户起点导入与历史盈亏结转 | active | 用户验收导入资料查看/删除恢复、主动核对及直接改名，并继续报价、收益及起点纠错验收 |
-| [P-011](issues/P-011-market-news-data-sources.md) | 免费与付费数据源统一管理及 AKShare 接入 | active | 验收基金编码修复、先汇率后行情及失败沿用；真实账户、可选授权源与正式 HTTP 页面联调待验证 |
+| [P-011](issues/P-011-market-news-data-sources.md) | 免费与付费数据源统一管理及 AKShare 接入 | active | 验收全部市值更新、基金编码修复及汇率沿用；真实账户、可选授权源与正式 HTTP 页面联调待验证 |
 <!-- project-memory:open:end -->
 
 ## 功能总览与维护

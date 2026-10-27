@@ -6,10 +6,10 @@ title: "免费与付费数据源统一管理及 AKShare 接入"
 status: active
 created: "2026-10-26"
 updated: "2026-10-27"
-changes: ["C-031", "C-032", "C-033"]
+changes: ["C-031", "C-032", "C-033", "C-034"]
 related: ["P-005", "P-006", "P-009", "P-010"]
 evidence: ["issues/solutions/P-011/S-001-provider-groups-akshare.md", "backend/app/services/providers.py", "backend/app/services/sync.py", "backend/app/adapters/futu_adapter.py", "frontend/src/features/portfolioViews.tsx", "backend/requirements.txt"]
-next: "验收基金编码修复、先汇率后行情及失败沿用；真实账户、可选授权源与正式 HTTP 页面联调待验证"
+next: "验收全部市值更新、基金编码修复及汇率沿用；真实账户、可选授权源与正式 HTTP 页面联调待验证"
 priority: high
 tags: ["market-data", "news", "providers", "akshare", "product"]
 ---
@@ -17,6 +17,8 @@ tags: ["market-data", "news", "providers", "akshare", "product"]
 # P-011：免费与付费数据源管理
 
 ## 当前进度
+
+2026-10-27 已完成 [C-034](../CODE_CHANGE_LOG/C-034-all-account-market-refresh-filters.md)：资产组合增加“更新全部市值”，依次复用所有账户原行情接口与配置；部分失败继续、进度与结果汇总、完成后刷新组合。仅手动触发，离开页面停止后续派发，不自动更新新闻。前端构建及 15 项离线真实组件交互通过；未操作真实账户或启动服务，正式使用待验收。
 
 2026-10-27 已完成 [C-033](../CODE_CHANGE_LOG/C-033-akshare-worker-utf8.md)：基金更新失败已定位为 Windows 默认 GBK 与取数 JSON 的 UTF-8 编码不一致，固定子进程编码并明确处理解码错误。6 项定向检查和 TypeScript 检查通过；默认 GBK 条件下，真实 SDK 经实际应用服务更新虚构内存账户，两只基金均取得 2026-10-26 净值，现金、数量与成本不变。未修改真实资料或重启服务；实际账户重试仍待用户验收。
 
