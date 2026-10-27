@@ -1,5 +1,6 @@
 import { assetUnit, priceUnit, quoteKindLabel, unitLabel } from "./assets";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Alert, Button, Drawer, Select, Table, Tag, Tooltip } from "@arco-design/web-react";
 import { portfolioApi } from "./api";
 import type { Asset, ChartPoint, DataNeed, Point, Portfolio } from "./types";
@@ -47,7 +48,7 @@ export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = 
   </div>;
 }
 
-export function PortfolioPanel({ accountId = "all", code = "", maskAssets = false, revision = 0, onOpen, showAssetTable = true, portfolio, onSupplement }: { accountId?: string; code?: string; maskAssets?: boolean; revision?: number; onOpen?: (code: string) => void; showAssetTable?: boolean; portfolio?: Portfolio; onSupplement?: (need: DataNeed) => void }) {
+export function PortfolioPanel({ accountId = "all", code = "", maskAssets = false, revision = 0, onOpen, showAssetTable = true, portfolio, onSupplement, actions }: { accountId?: string; code?: string; maskAssets?: boolean; revision?: number; onOpen?: (code: string) => void; showAssetTable?: boolean; portfolio?: Portfolio; onSupplement?: (need: DataNeed) => void; actions?: ReactNode }) {
   const [data, setData] = useState<Portfolio | null>(null), [error, setError] = useState("");
   const [metric, setMetric] = useState<ProfitMetric>("total_return"), [selected, setSelected] = useState<Point | null>(null);
   const request = useRef(0);
@@ -75,7 +76,7 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
   const uniqueNeeds = [...new Map(needs.map(n => [`${n.account_id}:${n.at}:${n.kind}:${n.code || ""}:${n.currency}:${n.unit || ""}`, n])).values()];
   const notes = [...new Set([...(current?.issues || []), ...(current?.performance_issues || [])])];
   return <section className="panel portfolio-panel stack">
-    <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "整体组合收益"}</h3><small>{code ? "唯一摊薄成本口径；现金分红抵扣成本，清仓后再买入重新计算" : total ? "累计口径含历史结转 · 收益率按净投入计算 · CNY" : "统计期口径 · 收益率按区间净值计算 · CNY"}</small></div>{!code && <Select aria-label="收益曲线指标" value={metric} onChange={value => setMetric(value as ProfitMetric)} options={profitMetrics.map(o => ({ ...o }))} />}</div>
+    <div className="portfolio-toolbar"><div><h3>{code ? "标的收益与成交历史" : "整体组合收益"}</h3><small>{code ? "唯一摊薄成本口径；现金分红抵扣成本，清仓后再买入重新计算" : total ? "累计口径含历史结转 · 收益率按净投入计算 · CNY" : "统计期口径 · 收益率按区间净值计算 · CNY"}</small></div>{!code && <div className="inline-actions">{actions}<Select aria-label="收益曲线指标" value={metric} onChange={value => setMetric(value as ProfitMetric)} options={profitMetrics.map(o => ({ ...o }))} /></div>}</div>
     {error && <Alert type="error" content={error} />}
     {pointLoading && <small>正在读取当时账目…</small>}
     {!code && current && <div className="portfolio-metrics"><div>组合总资产<strong>{money(current.total_assets)} CNY</strong></div><div>{scopeLabel}盈亏<strong>{profit != null ? `${money(profit)} CNY` : "待补齐"}</strong></div><div>{scopeLabel}收益率<strong>{percent(rate ?? null)}</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Drawer, Input, Select, Table } from "@arco-design/web-react";
 import { api, AccountSummary, ReturnPoint, HoldingHistoryItem } from "../api";
 import { accountLabel, AssetTable, percent, PortfolioPanel, timeLabel } from "./portfolio/PortfolioPanel";
@@ -13,11 +13,54 @@ export function ReturnHistoryPanel({ accounts, maskAssets, onChanged, onOpen }: 
   const [legacy, setLegacy] = useState<{ points: ReturnPoint[]; holdings: HoldingHistoryItem[] } | null>(null), [error, setError] = useState("");
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null), [account, setAccount] = useState("all"), [keyword, setKeyword] = useState("");
   const [supplement, setSupplement] = useState<{ need: DataNeed; opening?: Opening } | null>(null);
+  const [updating, setUpdating] = useState<{ index: number; total: number; name: string } | null>(null);
+  const [updateResults, setUpdateResults] = useState<Array<{ account: string; status: string; message: string }> | null>(null);
+  const updatingRef = useRef(false), mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { let cancelled = false; portfolioApi.overview("all").then(r => { if (!cancelled) { setPortfolio(r); setError(""); } }).catch(e => { if (!cancelled) setError(String(e.message)); }); return () => { cancelled = true; }; }, []);
   const holdings = account === "all" ? portfolio?.holdings ?? [] : (portfolio?.current?.positions ?? []).filter(p => p.account_id === account && Number(p.quantity) > 0);
   const filtered = holdings.filter(p => `${p.name} ${p.code}`.toLowerCase().includes(keyword.trim().toLowerCase()));
   const allocationLabels: Record<string, string> = { ...Object.fromEntries(assetOptions.map(o => [o.value, o.label])), cash: "现金", pending: "待确认 / 待到账", liabilities: "负债" };
   const accountNames = Object.fromEntries(accounts.map(a => [a.account_id, a.display_name || a.institution || "未命名账户"]));
+  async function updateAllMarketData() {
+    if (updatingRef.current || !accounts.length) return;
+    updatingRef.current = true;
+    setUpdateResults(null); setError("");
+    const targets = [...accounts], results = [];
+    try {
+      // Reuse each account's configured source and FX-before-price workflow.
+      // Sequential writes also avoid competing SQLite updates and source bursts.
+      for (const [index, target] of targets.entries()) {
+        // Leaving this page/workspace stops dispatching further account writes.
+        if (!mounted.current) return;
+        const name = accountNames[target.account_id];
+        setUpdating({ index: index + 1, total: targets.length, name });
+        try {
+          const result = await api.pullAccountMarketData(target.account_id, { data_type: "quote" });
+          results.push({ account: name, status: result.status, message: result.message });
+        } catch (e) {
+          results.push({ account: name, status: "failed", message: e instanceof Error ? e.message : "更新失败，请稍后重试" });
+        }
+      }
+      if (!mounted.current) return;
+      setUpdateResults(results);
+      // Refresh after partial success too; successful writes must remain visible.
+      try {
+        await onChanged();
+        if (!mounted.current) return;
+        const latest = await portfolioApi.overview("all");
+        if (mounted.current) setPortfolio(latest);
+      } catch (e) {
+        if (mounted.current) setError(`市值更新已结束，页面刷新失败，请重新进入资产组合。${e instanceof Error ? e.message : ""}`);
+      }
+    } finally {
+      updatingRef.current = false;
+      if (mounted.current) setUpdating(null);
+    }
+  }
+  const completed = updateResults?.filter(r => ["success", "empty"].includes(r.status)).length ?? 0;
+  const partial = updateResults?.filter(r => r.status === "partial").length ?? 0;
+  const failed = (updateResults?.length ?? 0) - completed - partial;
   async function openSupplement(need: DataNeed) {
     try {
       const initial = need.action === "opening" ? await portfolioApi.opening(need.account_id) : null;
@@ -39,7 +82,8 @@ export function ReturnHistoryPanel({ accounts, maskAssets, onChanged, onOpen }: 
   }
   return <div className="stack">
     {error && <Alert type="error" content={error} />}
-    {portfolio && <><PortfolioPanel accountId="all" portfolio={portfolio} maskAssets={maskAssets} showAssetTable={false} onSupplement={openSupplement} />
+    {updateResults && <Alert type={failed || partial ? completed || partial ? "warning" : "error" : "success"} content={<div>市值更新完成：{completed} 个账户完成，{partial} 个账户部分完成，{failed} 个账户失败。<details><summary>查看各账户结果</summary>{updateResults.map((r, i) => <p key={i}>{r.account}：{r.message}</p>)}</details></div>} />}
+    {portfolio && <><PortfolioPanel accountId="all" portfolio={portfolio} maskAssets={maskAssets} showAssetTable={false} onSupplement={openSupplement} actions={<Button type="primary" loading={!!updating} disabled={!accounts.length || !!updating} title={updating ? `正在更新：${updating.name}` : "按各账户的数据源配置更新全部持仓市值和汇率"} onClick={updateAllMarketData}>{updating ? `更新中 ${updating.index}/${updating.total}` : "更新全部市值"}</Button>} />
       <section className="panel stack"><div className="portfolio-toolbar"><h3>组合配置</h3><small>纳入 {portfolio.coverage.included_accounts.length} 个账户 · {portfolio.coverage.unenrolled_accounts.length} 个账户未建档</small></div>
         {!!portfolio.coverage.unenrolled_accounts.length && <small>未建档账户尚未纳入组合收益，到账户与数据确认起点后参与统计。</small>}
         {!portfolio.allocation.length && <small>暂无可用配置比例；请补齐账户起点及估值。</small>}
