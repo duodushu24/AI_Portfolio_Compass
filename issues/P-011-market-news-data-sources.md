@@ -6,10 +6,10 @@ title: "免费与付费数据源统一管理及 AKShare 接入"
 status: active
 created: "2026-10-26"
 updated: "2026-10-27"
-changes: ["C-031", "C-032"]
+changes: ["C-031", "C-032", "C-033"]
 related: ["P-005", "P-006", "P-009", "P-010"]
 evidence: ["issues/solutions/P-011/S-001-provider-groups-akshare.md", "backend/app/services/providers.py", "backend/app/services/sync.py", "backend/app/adapters/futu_adapter.py", "frontend/src/features/portfolioViews.tsx", "backend/requirements.txt"]
-next: "验收先汇率后行情、失败沿用及实际美股/黄金更新；可选授权源与正式 HTTP 页面联调待验证"
+next: "验收基金编码修复、先汇率后行情及失败沿用；真实账户、可选授权源与正式 HTTP 页面联调待验证"
 priority: high
 tags: ["market-data", "news", "providers", "akshare", "product"]
 ---
@@ -17,6 +17,8 @@ tags: ["market-data", "news", "providers", "akshare", "product"]
 # P-011：免费与付费数据源管理
 
 ## 当前进度
+
+2026-10-27 已完成 [C-033](../CODE_CHANGE_LOG/C-033-akshare-worker-utf8.md)：基金更新失败已定位为 Windows 默认 GBK 与取数 JSON 的 UTF-8 编码不一致，固定子进程编码并明确处理解码错误。6 项定向检查和 TypeScript 检查通过；默认 GBK 条件下，真实 SDK 经实际应用服务更新虚构内存账户，两只基金均取得 2026-10-26 净值，现金、数量与成本不变。未修改真实资料或重启服务；实际账户重试仍待用户验收。
 
 2026-10-27 已完成 [C-032](../CODE_CHANGE_LOG/C-032-us-gold-fx-first.md)：按用户新授权补齐美股股票/ETF、国际金价参考折算及 USD/HKD 日度汇率，严格先保存汇率再取价格；失败沿用最近有效记录及原日期。新增可用时间边界保护历史成交成本，页面显示汇率日期及黄金参考标记。51 项不同定向检查、12 项离线页面交互及构建覆盖通过；隔离应用实取 4 个公开价格与 750 条日线，调用顺序已验证。未改真实账目或启动前后端，正式 HTTP/真实账户操作仍待验收。
 
