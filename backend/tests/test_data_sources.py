@@ -55,7 +55,7 @@ def test_default_is_free_and_catalog_has_only_real_adapters(db):
     assert next(p for p in c if p["id"] == "futu")["group"] == "paid"
     assert next(p for p in c if p["id"] == "futu")["config"]["enabled"] is False
     assert ds.choose(db, "quote", "CN").name == "akshare"
-    assert ds.choose(db, "quote", "US") is None  # No hidden paid fallback.
+    assert ds.choose(db, "quote", "US").name == "akshare"
 
 
 def test_secret_save_mask_keep_clear_and_validation(db):
@@ -118,8 +118,9 @@ def test_partial_failure_keeps_old_price_and_does_not_change_cash_or_cost(db, mo
 
 
 def test_unsupported_market_cannot_silently_connect_futu(db, monkeypatch):
-    opening(db, positions=[asset(code="US.AAPL", market="US", currency="USD", quantity="1", average_cost="10", price="10")],)
+    opening(db, positions=[asset(code="HK.00700", market="HK", currency="HKD", quantity="1", average_cost="10", price="10")],)
     monkeypatch.setattr(providers, "_futu_factory", lambda _: pytest.fail("must not call paid source"))
+    patch_adapter(monkeypatch, lambda *_: {"status": "unsupported", "message": "此来源暂不支持"})
     result = pull_account_market_data(db, db.get(Account, "a"), "quote")
     assert result["failures"][0]["status"] == "unsupported"
 

@@ -45,7 +45,8 @@ class FxHistory:
                     continue
                 fact = {**deepcopy(item), "recorded_at": iso(timestamp),
                         "record_type": kind, "record_id": record_id, "account_id": owner}
-                self.rows.setdefault(curr, []).append((instant(item["at"]), order, fact))
+                usable_at = max(instant(item["at"]), instant(item.get("available_from") or item["at"]))
+                self.rows.setdefault(curr, []).append((usable_at, order, fact))
         for curr, rows in self.rows.items():
             rows.sort(key=lambda row: (row[0], row[1]))
             self.times[curr] = [row[0] for row in rows]
@@ -181,7 +182,7 @@ class Prices:
             cost = sum((p["cost"] or ZERO for p in group), ZERO)
             available = group and len({(p["currency"], p["unit"]) for p in group}) == 1 and all(p["cost"] is not None and p["floating"] is not None for p in group)
             asset_returns[code] = sum((p["floating"] for p in group), ZERO) / cost if available and cost > ZERO else None
-        return {"total_assets": total if complete else None, "known_assets": total,
+        return {"fx_rates": deepcopy(self.fx), "total_assets": total if complete else None, "known_assets": total,
                 "market_value": market_value if all(p["market_value_cny"] is not None for p in positions) else None,
                 "cash_value": cash_value if all(c["value_cny"] is not None for c in cash) else None,
                 "positions": positions, "cash": cash, "pending": pending,

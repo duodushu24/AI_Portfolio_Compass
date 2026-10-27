@@ -118,11 +118,14 @@ def quotes(data, at):
         item["at"] = iso(item.get("at") or at)
         item["source"] = str(item.get("source") or "手工")
         item["price_kind"] = item.get("price_kind", "nav" if item["asset_type"] == "fund" else "price")
-        if instant(item["at"]) > at or item["price_kind"] not in {"price", "nav", "estimate", "redemption", "bank_value"}:
+        if instant(item["at"]) > at or item["price_kind"] not in {"price", "nav", "estimate", "redemption", "bank_value", "reference"}:
             raise ValueError("报价类型无效或实际报价时间晚于记录时间")
         if item["price_kind"] in {"redemption", "bank_value"} and item["asset_type"] != "precious_metal":
             raise ValueError("银行黄金报价口径仅适用于贵金属")
         result["prices"].append({name: item[name] for name in ("code", "name", "market", "asset_type", "currency", "unit", "price", "at", "source", "price_kind")})
+        for name in ("price_date", "valuation_method", "reference"):
+            if name in item:
+                result["prices"][-1][name] = item[name]
     for curr, item in data.get("fx", {}).items():
         curr = currency(curr)
         item = dict(item) if isinstance(item, dict) else {"rate": item}
@@ -133,6 +136,14 @@ def quotes(data, at):
         if instant(when) > at:
             raise ValueError("汇率实际时间晚于记录时间")
         result["fx"][curr] = {"rate": str(rate), "at": when, "source": str(item.get("source") or "手工")}
+        for name in ("rate_date", "time_precision", "fetched_at"):
+            if item.get(name):
+                result["fx"][curr][name] = str(item[name])
+        if item.get("available_from"):
+            available = iso(item["available_from"])
+            if instant(available) > at or instant(available) < instant(when):
+                raise ValueError("汇率可用时间应介于实际汇率时间与记录时间之间")
+            result["fx"][curr]["available_from"] = available
         if "is_estimate" in item:
             if not isinstance(item["is_estimate"], bool):
                 raise ValueError("汇率估算标记必须是布尔值")
@@ -627,7 +638,8 @@ def ingest_quotes(db, rows, source):
     for row in rows:
         at = instant(row["quote_time"])
         for account_id, book in result["ledger"].accounts.items():
-            related = [p for p in book["positions"].values() if p["code"] == row["code"] and p["asset_type"] != "precious_metal"
+            related = [p for p in book["positions"].values() if p["code"] == row["code"]
+                       and (p["asset_type"] != "precious_metal" or row.get("valuation_method") == "international_spot_fx" and row.get("currency") == "CNY" and row.get("unit") == "gram")
                        and (not row.get("currency") or row["currency"] == p["currency"])
                        and (not row.get("unit") or row["unit"] == p["unit"])]
             if not related:
@@ -637,7 +649,8 @@ def ingest_quotes(db, rows, source):
                 raise ValueError("同一行情代码对应不同币种/单位，需确认来源报价口径")
             p = related[0]
             grouped.setdefault((account_id, observed_at), []).append({**{n: p[n] for n in ("code", "name", "market", "asset_type", "currency", "unit")},
-                "price": str(row["current_price"]), "at": iso(at), "source": str(row.get("provider") or source), "price_kind": row.get("price_kind") or "price"})
+                "price": str(row["current_price"]), "at": iso(at), "source": str(row.get("provider") or source), "price_kind": row.get("price_kind") or "price",
+                **{k: row[k] for k in ("price_date", "valuation_method", "reference") if k in row}})
             break  # One shared quote, not duplicate per account.
     for (account_id, at), prices in grouped.items():
         save_event(db, {"account_id": account_id, "kind": "valuation", "effective_at": at,

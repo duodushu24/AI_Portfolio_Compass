@@ -12,6 +12,8 @@ class AKShareAdapter:
     def __init__(self, config=None):
         self.config = config or {}
         self._fund_codes = None
+        from .akshare_global import GlobalMarketData
+        self.global_data = GlobalMarketData(lambda action, **kw: self._call(action, **kw))
 
     def _call(self, action, **kwargs):
         # Several SDK methods have no timeout parameter. A child gives every call
@@ -37,6 +39,12 @@ class AKShareAdapter:
 
     def fetch(self, asset, data_type, now=None):
         now = now or datetime.now(timezone.utc)
+        if data_type == "fx":
+            return self.global_data.fx(asset, now)
+        if data_type == "quote" and asset.get("asset_type") == "precious_metal":
+            return self.global_data.gold(asset, now)
+        if data_type == "quote" and asset.get("market") == "US":
+            return self.global_data.us(asset, now)
         local = now.astimezone(timezone(timedelta(hours=8)))
         symbol = asset["code"].split(".")[-1]
         if asset.get("market") != "CN" or len(symbol) != 6 or not symbol.isdigit():
@@ -108,17 +116,20 @@ def _worker():
     import akshare as ak
     request = json.loads(sys.stdin.read())
     functions = {"stock": ak.stock_zh_a_daily, "etf": ak.fund_etf_hist_sina,
-                 "fund": ak.fund_open_fund_info_em, "news": ak.stock_news_em, "fund_codes": ak.fund_name_em}
+                 "fund": ak.fund_open_fund_info_em, "news": ak.stock_news_em, "fund_codes": ak.fund_name_em,
+                 "us": ak.stock_us_daily, "gold": ak.futures_foreign_hist, "fx": ak.currency_boc_safe}
     action, kwargs = request["action"], request["kwargs"]
     if action == "etf":
         kwargs = {"symbol": kwargs["symbol"]}
     elif action == "fund":
         kwargs["indicator"] = "单位净值走势"
-    elif action == "stock":
+    elif action in {"stock", "us"}:
         kwargs["adjust"] = ""
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             frame = functions[action](**kwargs)
+        if action in {"us", "gold"}:
+            frame = frame.tail(500)
         print(json.dumps({"items": json.loads(frame.to_json(orient="records", date_format="iso"))}, ensure_ascii=False))
     except Exception as exc:
         print(json.dumps({"error": type(exc).__name__}))

@@ -54,6 +54,17 @@ def get_rate(db: Session, base_currency: str, quote_currency: str, now: datetime
     if base == quote:
         return FxRateResult(requested_quote, 1.0, SOURCE, now, now, now + FX_CACHE_TTL, False)
 
+    # Prefer the same saved observations used for portfolio valuation. Reading a
+    # display conversion never publishes an observation into the financial ledger.
+    from .market_fx import latest_saved
+    base_fact = {"rate": "1", "at": None} if base == "CNY" else latest_saved(db, base, now, include_display_cache=False)
+    quote_fact = {"rate": "1", "at": None} if quote == "CNY" else latest_saved(db, quote, now, include_display_cache=False)
+    if base_fact and quote_fact:
+        facts = [r for r in (base_fact, quote_fact) if r.get("at")]
+        times = [_aware(datetime.fromisoformat(r["at"].replace("Z", "+00:00"))) for r in facts]
+        return FxRateResult(requested_quote, float(base_fact["rate"]) / float(quote_fact["rate"]),
+            " / ".join(dict.fromkeys(r.get("source", "已保存汇率") for r in facts)), min(times), None, None, False)
+
     cached = _find_cached(db, base, quote)
     if cached and cached.expires_at and _aware(cached.expires_at) > now and not cached.is_stale:
         return _from_model(requested_quote, cached, False)

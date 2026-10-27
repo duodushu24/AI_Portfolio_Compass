@@ -90,6 +90,8 @@ class StaticProvider:
     group: str = "paid"
     factory: Callable | None = None
     fields: tuple[dict, ...] = ()
+    capability_markets: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    checks: tuple[dict, ...] = ()
 
     def health(self) -> ProviderHealth:
         settings = get_settings()
@@ -103,7 +105,7 @@ class StaticProvider:
         return [
             ProviderCapability(
                 data_type=data_type,
-                markets=self.markets,
+                markets=self.capability_markets.get(data_type, self.markets),
                 realtime=self.realtime,
                 delayed=self.delayed,
                 requires_account=self.requires_account,
@@ -185,8 +187,11 @@ def provider_registry() -> ProviderRegistry:
         {"key": "host", "label": "OpenD 地址", "type": "text", "default": "127.0.0.1"},
         {"key": "port", "label": "OpenD 端口", "type": "number", "default": 11111})
     futu.license_note = "需登录 OpenD 并取得相应行情权限；实际费用依服务商权限规则，不代表每次请求收费。"
-    registry.register(StaticProvider("akshare", "AKShare", ("quote", "news", "kline"), ("CN",),
-        group="free", factory=_akshare_factory, license_note="默认免费来源：沪深股票/ETF 收盘价、正式基金净值、境内个股新闻；依上游条件使用。",
+    registry.register(StaticProvider("akshare", "AKShare", ("quote", "news", "kline", "fx"), ("CN", "US"),
+        group="free", factory=_akshare_factory, license_note="免费来源：境内股票/ETF、基金净值、美股股票/ETF 收盘价、国际金价折算参考与日度人民币中间价；新闻首批覆盖境内个股。",
+        capability_markets={"news": ("CN",), "fx": ("CN",)},
+        checks=({"label": "行情／净值", "data_type": "quote"}, {"label": "美股行情", "data_type": "quote", "sample": "us"},
+                {"label": "金价折算", "data_type": "quote", "sample": "gold"}, {"label": "汇率", "data_type": "fx"}, {"label": "新闻", "data_type": "news"}),
         fields=({"key": "timeout_seconds", "label": "单次请求超时（秒）", "type": "number", "default": 20},)))
     marketaux = registry.get("marketaux")
     marketaux.group, marketaux.factory = "free", _marketaux_factory

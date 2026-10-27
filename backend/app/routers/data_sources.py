@@ -26,4 +26,4 @@ def configure(provider_id: str, payload: dict = Body(...), db: Session = Depends
 
 @router.post("/{provider_id}/check")
 def check(provider_id: str, payload: dict = Body(default_factory=dict), db: Session = Depends(get_db)):
-    return call(lambda: data_sources.probe(db, provider_id, str(payload.get("data_type") or "quote")))
+    return call(lambda: data_sources.probe(db, provider_id, str(payload.get("data_type") or "quote"), sample=payload.get("sample")))

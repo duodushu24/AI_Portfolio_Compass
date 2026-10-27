@@ -607,7 +607,7 @@ def test_gold_grams_cash_cost_fees_valuation_and_closed_return(records):
     assert "银行黄金" in kline.json()["message"]
 
 
-def test_gold_products_have_independent_quotes_and_no_live_pull(records, monkeypatch):
+def test_gold_products_keep_independent_quotes_when_free_source_fails(records, monkeypatch):
     _, sessions = records
     from app.main import _aggregate_positions
     from app.services.sync import pull_account_market_data
@@ -615,6 +615,11 @@ def test_gold_products_have_independent_quotes_and_no_live_pull(records, monkeyp
     def forbidden(*args, **kwargs):
         raise AssertionError("bank products must not call securities adapters")
     monkeypatch.setattr(FutuReadOnlyAdapter, "fetch_quote_summaries", forbidden)
+    from app.services import providers
+    class UnavailableFreeSource:
+        def fetch(self, *_):
+            return {"status": "timeout", "message": "虚构来源超时"}
+    monkeypatch.setattr(providers, "_akshare_factory", lambda _: UnavailableFreeSource())
     with sessions() as db:
         a = s.asset({**gold(), "code": ""})
         b = s.asset({**gold(), "code": "", "name": "虚构乙银行账户金"})
@@ -627,7 +632,8 @@ def test_gold_products_have_independent_quotes_and_no_live_pull(records, monkeyp
         rows = s.projection_positions(db)
         assert all(p.unit == "gram" and p.missing_market_code for p in rows)
         assert {p["unit"] for p in _aggregate_positions(rows)} == {"gram"}
-        assert pull_account_market_data(db, db.get(Account, "test-a"), "quote")["status"] == "empty"
+        assert pull_account_market_data(db, db.get(Account, "test-a"), "quote")["status"] == "failed"
+        assert {p["code"]:p["price"] for p in current(db)["positions"]} == {a["code"]:650,b["code"]:630}
 
 
 def test_gold_unit_validation_and_source_round_trip(records):

@@ -4,7 +4,7 @@ export type Asset = {
   quantity: string; diluted_cost: string | null; cost_method: "diluted"; dividends: string; dividends_cny: string | null; average_cost: string | null; cost: string | null; cost_cny: string | null;
   price: string | null; market_value: string | null; market_value_cny: string | null;
   floating: string | null; holding_return: string | null; realized: string | null; realized_cny: string | null;
-  cycle: number; quote: { at: string; source: string; price_kind: string } | null;
+  cycle: number; quote: { at: string; source: string; price_kind: string; price_date?: string } | null;
   position_weight: string | null; closed_return: string | null;
   closed_cycles: Array<{ cycle: number; opened_at: string; closed_at: string; realized: string | null; disposed_cost: string | null; return: string | null }>;
 };
@@ -16,6 +16,7 @@ export type DataNeed = {
   valuation_date?: string | null;
 };
 export type Point = {
+  fx_rates?: Record<string, FxUse & {rate_date?: string}>;
   performance_baseline?: { at: string; valuation_date: string | null; record_id: number; status: "complete" | "missing" | "nonpositive" } | null;
   data_needs?: DataNeed[]; performance_needs?: DataNeed[]; cumulative_needs?: DataNeed[];
   cumulative_profit_rate: string | null; cumulative_net_investment: string | null;

@@ -13,7 +13,11 @@ from .providers import provider_registry, normalize_market
 
 def _environment_order(kind):
     settings = get_settings()
-    value = settings.market_data_provider_priority if kind == "quote" else settings.news_provider_priority or settings.news_provider
+    value = ""
+    if kind == "quote":
+        value = settings.market_data_provider_priority
+    elif kind == "news":
+        value = settings.news_provider_priority or settings.news_provider
     return [v.strip().lower() for v in value.split(",") if v.strip()]
 
 
@@ -57,22 +61,23 @@ def catalog(db):
         status, message = availability(db, p)
         row = db.get(DataProviderConfig, p.name)
         result.append({"id": p.name, "label": p.label, "group": p.group, "description": p.license_note,
+            "checks": list(p.checks) or [{"data_type": k, "label": {"quote": "行情／净值", "news": "新闻", "fx": "汇率"}[k]} for k in p.data_types if k in {"quote", "news", "fx"}],
             "capabilities": list(p.data_types), "markets": list(p.markets), "fields": list(p.fields),
             "config": {k: v for k, v in values.items() if k not in secrets and k != "last_check"},
             "secrets": {k: bool(values.get(k)) for k in secrets},
             "status": status, "message": message, "last_check": (row.data or {}).get("last_check") if row else None})
-    return {"items": result}
+    return {"items": sorted(result, key=lambda r: (r["id"] != "akshare", r["label"]))}
 
 
 def save_config(db, provider_id, payload):
     p = provider_registry().get(provider_id)
     if not p or not p.factory:
         raise ValueError("数据源尚未实现")
-    allowed = {f["key"] for f in p.fields} | {"enabled", "preferred_quote", "preferred_news"}
+    allowed = {f["key"] for f in p.fields} | {"enabled", "preferred_quote", "preferred_news", "preferred_fx"}
     if payload.keys() - allowed:
         raise ValueError("配置包含不支持的字段")
     values = config(db, p)
-    for k in ("enabled", "preferred_quote", "preferred_news"):
+    for k in ("enabled", "preferred_quote", "preferred_news", "preferred_fx"):
         if k in payload and type(payload[k]) is not bool:
             raise ValueError("启用和默认选择必须为布尔值")
         if k.startswith("preferred_") and payload.get(k) and k.removeprefix("preferred_") not in p.data_types:
@@ -93,14 +98,14 @@ def save_config(db, provider_id, payload):
         elif value is not None and (not isinstance(value, str) or len(value) > 500 or any(c in value for c in "\r\n")):
             raise ValueError("配置值格式无效")
         values[k] = value
-    values.update({k: payload[k] for k in ("enabled", "preferred_quote", "preferred_news") if k in payload})
+    values.update({k: payload[k] for k in ("enabled", "preferred_quote", "preferred_news", "preferred_fx") if k in payload})
     values.pop("last_check", None)
     try:
         row = db.get(DataProviderConfig, p.name) or DataProviderConfig(provider_id=p.name)
         row.data = values
         db.add(row)
         db.execute(delete(DataSourceState).where(DataSourceState.provider == p.name))
-        for capability in ("quote", "news"):
+        for capability in ("quote", "news", "fx"):
             preference = "preferred_" + capability
             if values.get(preference):
                 for other in db.scalars(select(DataProviderConfig).where(DataProviderConfig.provider_id != p.name)):
@@ -114,10 +119,11 @@ def save_config(db, provider_id, payload):
 
 def choose(db, data_type, market, explicit=""):
     registry = provider_registry()
+    supports = lambda p: p and any(c.data_type == data_type and market in c.markets for c in p.capabilities())
     if explicit:
         p = registry.get(explicit)
-        return p if p and data_type in p.data_types and market in p.markets else None
-    candidates = [p for p in registry._providers.values() if p.factory and data_type in p.data_types and market in p.markets]
+        return p if supports(p) else None
+    candidates = [p for p in registry._providers.values() if p.factory and supports(p)]
     preferred = [p for p in candidates if config(db, p).get("preferred_" + data_type) and config(db, p)["enabled"]]
     if preferred:
         return preferred[0]
@@ -170,27 +176,38 @@ def fetch(db, p, asset, kind, adapters=None):
                 "message": messages.get(reason, "来源请求或解析失败，原有数据已保留，请稍后检测连接")}
 
 
-def probe(db, provider_id, kind="quote", market=None):
+def probe(db, provider_id, kind="quote", market=None, sample=None):
     p = provider_registry().get(provider_id)
-    if not p or not p.factory or kind not in {"quote", "news"} or kind not in p.data_types:
+    if not p or not p.factory or kind not in {"quote", "news", "fx"} or kind not in p.data_types:
         raise ValueError("此来源未实现所选能力")
-    market = market or p.markets[0]
+    market = "US" if sample == "us" else market or p.markets[0]
     samples = {"CN": ("CN.000001", "CNY"), "US": ("US.AAPL", "USD"), "HK": ("HK.00700", "HKD")}
     if market not in p.markets or market not in samples:
         raise ValueError("此来源未提供该市场的检测示例")
     code, currency = samples[market]
     asset = {"code": code, "name": "公开检测示例", "market": market, "asset_type": "stock", "currency": currency, "unit": "share"}
-    result = fetch(db, p, asset, kind)
+    adapters = {}
+    if kind == "fx":
+        asset.update(code="USD/CNY", currency="USD")
+    elif sample == "gold":
+        asset.update(code="CN.GOLD.PUBLIC_PROBE", market="CN", currency="CNY", unit="gram", asset_type="precious_metal")
+        fx_result = fetch(db, p, {"code": "USD/CNY", "currency": "USD", "market": "CN"}, "fx", adapters)
+        asset["conversion_fx"] = next(iter(fx_result.get("fx", [])), None)
+    result = fetch(db, p, asset, kind, adapters)
     # Only a verified public observation proves quote availability; config never does.
-    if result["status"] == "available" and not result.get("quotes") and not result.get("news"):
+    if result["status"] == "available" and not any(result.get(k) for k in ("quotes", "news", "fx")):
         result = {"status": "empty", "message": "来源本次未返回可验证的数据"}
     if result["status"] == "available":
         try:
             if kind == "quote":
                 from .portfolio.performance import instant
-                valid = any(r.get("code") == code and math.isfinite(float(r["current_price"])) and float(r["current_price"]) > 0
+                valid = any(r.get("code") == asset["code"] and math.isfinite(float(r["current_price"])) and float(r["current_price"]) > 0
                     and instant(r["quote_time"]) <= datetime.now(timezone.utc).replace(tzinfo=None)
-                    and r.get("currency") == currency and r.get("unit") == "share" for r in result.get("quotes", []))
+                    and r.get("currency") == asset["currency"] and r.get("unit") == asset["unit"] for r in result.get("quotes", []))
+            elif kind == "fx":
+                from .portfolio.performance import instant
+                valid = any(r["currency"] == "USD" and math.isfinite(float(r["rate"])) and float(r["rate"]) > 0
+                    and instant(r["at"]) <= datetime.now(timezone.utc).replace(tzinfo=None) for r in result.get("fx", []))
             else:
                 valid = any(r.get("title") and str(r.get("url") or "").startswith(("http://", "https://")) for r in result.get("news", []))
         except (ValueError, TypeError, KeyError):
@@ -198,7 +215,7 @@ def probe(db, provider_id, kind="quote", market=None):
         if not valid:
             result = {"status": "invalid_data", "message": "来源返回的价格、日期或新闻字段不完整，未通过检测，请更新适配器后重试"}
     check = {"status": result["status"], "message": result["message"], "checked_at": datetime.now(timezone.utc).isoformat(),
-             "data_type": kind, "sample_count": len(result.get("quotes", result.get("news", [])))}
+             "data_type": kind, "sample": sample, "sample_count": len(result.get("quotes", result.get("news", result.get("fx", []))))}
     row = db.get(DataProviderConfig, provider_id) or DataProviderConfig(provider_id=provider_id)
     row.data = {**config(db, p), "last_check": check}
     db.add(row); db.commit()

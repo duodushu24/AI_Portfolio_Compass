@@ -29,13 +29,13 @@ export function AssetTable({ assets, onOpen, maskAssets = false, accountNames = 
       { title: "数量", align: "right", width: 85, render: (_, a: Asset) => <Tooltip content={`数量单位：${unitLabel(a.unit)}`}><span>{money(a.quantity, 6)}</span></Tooltip> },
       { title: "成本价", align: "right", width: 95, render: (_, a: Asset) => <Tooltip content={`本阶段买入支出减卖出净收入、净分红，再除以剩余数量。单位价格，${priceUnit(a.currency, a.unit)}`}><span>{money(a.average_cost, 4)}</span></Tooltip> },
       { title: "市值价", align: "right", width: 95, render: (_, a: Asset) => {
-        const mark = !a.quote ? "缺价" : a.quote.price_kind === "estimate" ? "估" : new Date(a.quote.at).toDateString() === new Date(asOf || Date.now()).toDateString() ? "·" : null;
+        const mark = !a.quote ? "缺价" : a.quote.price_kind === "reference" ? "参考" : a.quote.price_kind === "estimate" ? "估" : new Date(a.quote.at).toDateString() === new Date(asOf || Date.now()).toDateString() ? "·" : null;
         return <Tooltip content={a.quote ? `${quoteKindLabel(a.quote.price_kind)} · ${a.quote.source} · ${timeLabel(a.quote.at)} · ${priceUnit(a.currency, a.unit)}` : "缺少报价"}><span>{money(a.price, 4)}{mark && <sup className="portfolio-quote-mark">{mark}</sup>}</span></Tooltip>;
       } },
       ...(showQuoteDate ? [{ title: "市值更新日期", width: 120, render: (_: unknown, a: Asset) => {
         const rows = a.account_positions || [a];
         if (rows.some(p => !p.quote?.at)) return "—";
-        const dates = [...new Set(rows.map(p => calendarDay(p.quote!.at)))].sort();
+        const dates = [...new Set(rows.map(p => p.quote!.price_date || calendarDay(p.quote!.at)))].sort();
         return dates.length > 1 ? <Tooltip content="各账户价格日期不同，显示最早日期；展开可查看各账户。"><span>{dates[0]}</span></Tooltip> : dates[0];
       } }] : []),
       { title: "持仓盈亏", align: "right", width: 105, render: (_, a: Asset) => signed(a.floating) },
@@ -79,6 +79,7 @@ export function PortfolioPanel({ accountId = "all", code = "", maskAssets = fals
     {error && <Alert type="error" content={error} />}
     {pointLoading && <small>正在读取当时账目…</small>}
     {!code && current && <div className="portfolio-metrics"><div>组合总资产<strong>{money(current.total_assets)} CNY</strong></div><div>{scopeLabel}盈亏<strong>{profit != null ? `${money(profit)} CNY` : "待补齐"}</strong></div><div>{scopeLabel}收益率<strong>{percent(rate ?? null)}</strong></div><div>现金<strong>{money(current.cash_value)} CNY</strong></div></div>}
+    {!code && current?.fx_rates && <small className="metadata-note">{Object.entries(current.fx_rates).filter(([c]) => c !== "CNY").map(([c,r]) => `${c}/CNY ${Number(r.rate).toFixed(4)} · ${r.rate_date || calendarDay(r.at)}`).join("　")}</small>}
     {!!uniqueNeeds.length && <Alert type="warning" content={<div><strong>{scopeLabel}收益资料待补齐</strong>{!total && profit != null && rate == null && <p>盈亏金额可计算；收益率还需要资金进出时的估值。</p>}<ul>{uniqueNeeds.map((n, i) => <li key={i}>{accountName(n.account_id)} · {n.valuation_date || calendarDay(n.at)}{n.context === "opening" ? " 期初" : n.context === "cash_flow" ? " 资金进出时" : n.context === "baseline" ? " 收益基准" : ""} · {n.kind === "fx" ? `${n.currency}/CNY 汇率` : `${n.name || n.code}：${n.kind === "price" ? "市值价" : n.kind === "cost_cny" ? "历史人民币剩余成本" : "成本价"}`}缺失。{onSupplement ? <Button size="mini" type="text" onClick={() => onSupplement(n)}>{n.action === "opening" ? "补齐期初" : n.kind === "fx" ? "补录汇率" : "补录市值"}</Button> : "请到账户与数据补录。"}</li>)}</ul></div>} />}
     {!code && total && current && !!current.missing_cumulative_accounts?.length && !uniqueNeeds.length && <Alert type="warning" content={`累计盈亏待补齐：${current.missing_cumulative_accounts.map(accountName).join("、")}。请到账户与数据核对期初与资金记录。`} />}
     {!code && total && current?.cumulative_profit != null && current.cumulative_profit_rate == null && <p className="metadata-note">累计净投入为零或负数，不展示累计收益率；累计盈亏金额仍可查看。</p>}

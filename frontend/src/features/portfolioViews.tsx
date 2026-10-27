@@ -5327,8 +5327,9 @@ export function currencyNote(baseCurrency: string, displayCurrency: string, disp
   if (baseCurrency === displayCurrency) return `当前按账户基准币种 ${baseCurrency} 展示。`;
   const source = meta?.source === "frankfurter" ? "Frankfurter" : meta?.source || "汇率源";
   const stale = meta?.is_stale ? " · 使用缓存汇率" : "";
+  const rateDate = meta?.rate_time ? ` · ${formatDate(meta.rate_time)} 汇率` : "";
   const fetchedAt = meta?.fetched_at ? ` · ${formatDate(meta.fetched_at)} 更新` : "";
-  return `当前按 ${baseCurrency} -> ${displayCurrency} 汇率 ${maskAssetText(displayRate.toFixed(6))} 展示 · ${source}${fetchedAt}${stale}`;
+  return `当前按 ${baseCurrency} -> ${displayCurrency} 汇率 ${maskAssetText(displayRate.toFixed(6))} 展示 · ${source}${rateDate}${fetchedAt}${stale}`;
 }
 
 export function sourceLabel(source: string) {

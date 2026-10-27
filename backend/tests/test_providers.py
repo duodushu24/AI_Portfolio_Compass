@@ -30,8 +30,10 @@ def test_provider_status_does_not_offer_unimplemented_us_source():
     states = account_provider_statuses("manual", ["US"])
     quote = next(item for item in states if item["data_type"] == "quote")
 
-    assert quote["status"] == "unsupported"
-    assert not quote["provider"]
+    assert quote["status"] == "configured"
+    assert quote["provider"] == "akshare"
+    news = next(item for item in states if item["data_type"] == "news")
+    assert news["status"] == "unsupported"
 
 
 def test_symbol_normalization_for_supported_markets():

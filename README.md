@@ -141,7 +141,7 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 - 日记阅读与整理：AI 回复和总结支持常用 Markdown 排版，总结正文可编辑及预览。分析用于深入理解，总结保留核心结论、必要依据与边界；原文范围显示选中条数及日期、标题，不自动读取其他日期日记。总结的实际凝练质量仍需模型试用验证。
 - 投资标签库：维护简短名称、使用定义和别名；AI 优先复用已有标签，新标签由用户确认，可手工新增、改名或合并并保留总结关联。
 - 组合诊断工作流：客户画像、持仓诊断、资产配置建议等结构化报告。
-- 数据源：免费默认 AKShare，支持沪深股票/ETF 收盘价、基金正式净值和境内个股新闻；免费/付费源统一管理，Futu OpenD 可选，Marketaux 保留免费额度 Key 配置。其他注册项尚未实现取数，不作为可用选项。
+- 数据源：免费默认 AKShare，支持沪深及美股股票/ETF 收盘价、基金正式净值、国际金价折算、日度汇率和境内个股新闻；免费/付费源统一管理，Futu OpenD 可选，Marketaux 保留免费额度 Key 配置。其他注册项尚未实现取数，不作为可用选项。
 - 数据新鲜度矩阵：持仓、成交、行情、资讯、汇率、画像和决策卡都有过期处理。
 
 成本计算唯一采用摊薄法：本持有阶段净成本＝买入清算支出－卖出净收入－净现金分红，除以剩余数量得到摊薄成本价；部分卖出和分红均会改变成本价，持仓盈亏已含二者，数量归零才结算清仓收益，再买入重新开阶段。分红按记账时间视同到账，不处理除息到到账的时间差，不自动调整市值价；清仓收益率以该阶段累计买入支出为分母，非正或未知分母不输出比例。详见 [P-007/S-001](issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md) 和 [C-017](CODE_CHANGE_LOG/C-017-manual-dividend-cost.md)。
@@ -254,11 +254,13 @@ backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --hos
 
 ## 配置
 
-复制 `.env.example` 为 `.env`。默认 AKShare 不需要 Key、证券账户或 OpenD；在“AI与高级设置 → 数据源 → 免费源”检测后，到“账户与数据”的行情/新闻页手动更新。沪深股票/ETF 使用已完成交易日的不复权收盘价，场外基金使用正式单位净值，保留原始价格日期；盘中运行不会把当日未完成日线当收盘价。ETF/基金新闻、港美股免费行情、银行黄金和自动汇率暂未覆盖，可手动维护。
+复制 `.env.example` 为 `.env`。默认 AKShare 不需要 Key、证券账户或 OpenD；在“AI与高级设置 → 数据源 → 免费源”检测后，到“账户与数据”的行情/新闻页手动更新。沪深股票/ETF 使用已完成交易日的不复权收盘价，场外基金使用正式单位净值，保留原始价格日期；盘中运行不会把当日未完成日线当收盘价。美股股票/ETF 使用美元不复权收盘价，按纽约时区识别已完成交易日。黄金可按国际 XAU 参考价 × USD/CNY ÷ 31.1034768 折算人民币元/克，明确标为参考估值；新浪 XAU 为伦敦金现货参考/CFD，并非银行赎回报价。ETF/基金新闻、港股免费行情及银行专属自动报价仍未覆盖。
+
+“更新行情”先获取并保存 USD/CNY 等所需汇率，再更新美股与金价；使用 AKShare 的 SAFE 日度人民币中间价。汇率失败沿用最近一次有效记录及原日期，较旧的上游数据不覆盖较新记录；缺少记录时提示补齐，不以固定汇率计算收益。美元现金同步折算，黄金已是人民币价格后不再重复换汇。实际成交与手续费继续记账，更新不改数量、成本或原币现金，也不把今日汇率套到更新前的成交。
 
 付费源页按需启用 Futu，配置 OpenD 地址/端口并检测；Marketaux 为需 Key 的可选免费额度来源。前端保存的设置优先，旧环境变量仍兼容。普通沿用报价不视为估算，失败保留原有价格与日期。开源版本不包含商业 API Key。
 
-开发者接入其他来源时，在 `backend/app/adapters/` 实现适配器，并在 `backend/app/services/providers.py` 登记分组、工厂、能力及配置字段。前端自动生成相应卡片和表单，不需要再维护服务商名单。AKShare 当前股票/ETF 使用新浪接口，基金净值/个股新闻使用东方财富接口；并非互相独立的稳定性保证。
+开发者接入其他来源时，在 `backend/app/adapters/` 实现适配器，并在 `backend/app/services/providers.py` 登记分组、工厂、能力及配置字段。前端自动生成相应卡片和表单，不需要再维护服务商名单。AKShare 当前境内/美股股票及 ETF、伦敦金参考使用新浪接口，基金净值/个股新闻使用东方财富接口，日度中间价来自 SAFE；并非互相独立的稳定性保证。
 
 ```bash
 FUTU_OPEND_HOST=127.0.0.1
@@ -501,7 +503,7 @@ Safety is a first-class design constraint:
 - Trade review with execution outcome, later market movement, discipline labels, and risk focus.
 - Independent investment diaries under Review: save original text to SQLite and dated Markdown files, browse/search entries, and edit them. AI distillation is planned for the next phase.
 - Structured AI workflows for customer profiling, portfolio diagnosis, and allocation suggestions.
-- Free AKShare data by default: mainland stock/ETF closes, published fund NAVs, and stock news. Free/paid providers share one settings area; Futu is optional and Marketaux retains its key-based free quota. Unimplemented provider placeholders are not offered as working integrations.
+- Free AKShare data by default: mainland and US stock/ETF closes, published fund NAVs, XAU reference valuation, dated CNY FX and mainland stock news. Free/paid providers share one settings area; Futu is optional and Marketaux retains its key-based free quota. Unimplemented provider placeholders are not offered as working integrations.
 - Freshness rules for holdings, trades, quotes, news, FX rates, profiles, and decision cards.
 
 ## Who It Is For
@@ -582,7 +584,7 @@ The frontend runs at `http://127.0.0.1:4410`; the formal backend health endpoint
 
 ## Configuration
 
-Copy `.env.example` to `.env`. Default AKShare needs no key, brokerage account, or OpenD. Check it under AI & Advanced Settings → Data Sources → Free, then manually update quotes/news in Accounts & Data. Mainland stocks/ETFs use completed-day unadjusted closes; OTC funds use published unit NAVs with their original dates. ETF/fund news, free HK/US quotes, bank gold and automatic FX are outside this batch. Enable optional Futu in Paid, or configure Marketaux with your own key for its free quota. Saved UI settings take priority over legacy environment values; failed updates preserve existing prices. No commercial API keys are included.
+Copy `.env.example` to `.env`. Default AKShare needs no key, brokerage account, or OpenD. Check it under AI & Advanced Settings → Data Sources → Free, then manually update quotes/news in Accounts & Data. Mainland stocks/ETFs use completed-day unadjusted closes; OTC funds use published unit NAVs with their original dates. US stocks/ETFs use unadjusted USD closes with New York DST handling. Gold can use Sina London XAU spot-reference/CFD prices converted as USD per troy ounce × USD/CNY ÷ 31.1034768, explicitly marked as a reference, not a bank redemption quote. ETF/fund news, free HK quotes and bank-specific automatic quotes remain outside this batch. Updates fetch and save required FX first, then fetch prices. SAFE daily reference rates are shared across valuation; failed FX requests retain the latest valid saved rate and its original date, with no fixed-rate fallback in the financial ledger. Actual units, costs, original-currency cash and earlier trade FX costs remain unchanged. Enable optional Futu in Paid, or configure Marketaux with your own key for its free quota. Saved UI settings take priority over legacy environment values; failed updates preserve existing prices. No commercial API keys are included.
 
 ```bash
 FUTU_OPEND_HOST=127.0.0.1

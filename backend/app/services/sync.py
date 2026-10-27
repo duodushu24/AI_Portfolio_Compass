@@ -98,25 +98,39 @@ def pull_account_market_data(db: Session, account: Account, data_type: str) -> d
         raise ValueError("Unsupported data type")
     from app.services import data_sources
     from app.services.portfolio.ledger import asset_unit
-    positions = [item for item in latest_positions(db, account.account_id) if item.code and not item.missing_market_code and item.asset_type != "precious_metal"]
-    if not positions:
-        return {"status": "empty", "message": "当前账户暂无可拉取的持仓标的", "inserted_count": 0, "updated_count": 0}
+    positions = [item for item in latest_positions(db, account.account_id) if item.code and
+        (not item.missing_market_code or normalized_type == "quote" and item.asset_type == "precious_metal")]
 
     sync_id = f"{normalized_type}_pull_{uuid4().hex}"
     inserted = updated = bar_count = accepted = 0
     failures, outcomes, seen, adapters = [], {}, set(), {}
+    fx_update = {"rates": {}, "items": [], "updated_count": 0}
+    if normalized_type == "quote":
+        from . import market_fx
+        from .portfolio.service import calculate
+        required = {item.raw_currency or account.base_currency for item in positions}
+        if any(item.asset_type == "precious_metal" for item in positions):
+            required.add("USD")
+        book = calculate(db)["ledger"].accounts.get(account.account_id, {})
+        for field in ("cash", "liabilities"):
+            required.update(c for c, v in book.get(field, {}).items() if v)
+        required.update(p["currency"] for p in book.get("pending", {}).values())
+        # Fetch and publish FX before any quote request, including cash-only accounts.
+        fx_update = market_fx.update(db, account.account_id, required, adapters)
     explicit = account.market_data_provider if data_type == "quote" else account.news_data_provider
     for item in positions:
         asset = {"code": str(item.code).strip().upper(), "name": item.name,
                  "market": normalize_market(item.market), "asset_type": item.asset_type,
                  "unit": asset_unit(item.asset_type, item.unit), "currency": item.raw_currency or account.base_currency}
+        if item.asset_type == "precious_metal":
+            asset["conversion_fx"] = fx_update["rates"].get("USD")
         marker = (asset["code"], asset["currency"], asset["unit"])
         if marker in seen:
             continue
         seen.add(marker)
         provider = data_sources.choose(db, normalized_type, asset["market"], explicit or "")
         result = None
-        if normalized_type == "quote" and provider and data_sources.availability(db, provider)[0] == "configured":
+        if normalized_type == "quote" and item.asset_type != "precious_metal" and provider and data_sources.availability(db, provider)[0] == "configured":
             cache = db.scalar(select(QuoteSummary).where(QuoteSummary.code == asset["code"], QuoteSummary.provider == provider.name).order_by(QuoteSummary.quote_time.desc()))
             meta = cache.metadata_json or {} if cache else {}
             fetched = datetime.fromisoformat(meta["fetched_at"]) if meta.get("fetched_at") else None
@@ -151,12 +165,15 @@ def pull_account_market_data(db: Session, account: Account, data_type: str) -> d
                           account_id=account.account_id, provider=provider, data_type=data_type, market=market,
                           last_success_time=datetime.now(timezone.utc) if available else None)
     db.commit()
-    status = "partial" if failures and accepted else "failed" if failures else "success" if inserted + updated + bar_count else "empty"
+    missing_fx = any(r["status"] == "missing" for r in fx_update["items"])
+    status = "partial" if (failures or missing_fx) and (accepted or fx_update["updated_count"]) else "failed" if failures or missing_fx else "success" if inserted + updated + bar_count + fx_update["updated_count"] else "empty"
     message = f"处理 {accepted}/{len(seen)} 个标的，新增 {inserted} 条、更新 {updated} 条、日线 {bar_count} 条"
     if failures:
         message += "；" + "；".join(f"{r['name'] or r['code']}：{r['message']}" for r in failures[:5])
+    if fx_update["items"]:
+        message += "；" + "；".join(f"{r['currency']}/CNY {r['rate']} · {r.get('rate_date') or r['at'][:10]}" if r["status"] == "updated" else r["message"] for r in fx_update["items"])
     return {"status": status, "message": message, "inserted_count": inserted, "updated_count": updated,
-            "kline_snapshot_count": bar_count, "failures": failures}
+            "kline_snapshot_count": bar_count, "failures": failures, "fx_updates": fx_update["items"]}
 
 
 def _persist_quote_rows(db: Session, sync_id: str, rows: list[dict]) -> int:
@@ -179,6 +196,7 @@ def _persist_quote_rows(db: Session, sync_id: str, rows: list[dict]) -> int:
         fresh.append(payload)
         columns = set(QuoteSummary.__table__.columns.keys()) - {"quote_id", "sync_id", "metadata_json"}
         metadata = {k: str(payload[k]) for k in ("price_kind", "currency", "unit", "price_date", "time_precision", "upstream", "fetched_at") if k in payload}
+        metadata.update({k: payload[k] for k in ("valuation_method", "reference") if k in payload})
         db.add(QuoteSummary(sync_id=sync_id, metadata_json=metadata, **{k: v for k, v in payload.items() if k in columns}))
         inserted += 1
     ingest_quotes(db, fresh, sync_id)

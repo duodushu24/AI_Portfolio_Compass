@@ -7,4 +7,4 @@ export const assetUnit = (type: string) => type === "precious_metal" ? "gram" : 
 export const unitLabel = (unit: string) => ({ gram: "克", fund_unit: "份", share: "股 / 份" }[unit] || unit);
 export const priceUnit = (currency: string, unit: string) => `${({ CNY: "元", HKD: "港元", USD: "美元" }[currency] || currency)}/${unitLabel(unit)}`;
 export const goldCode = () => `CN.GOLD.${crypto.randomUUID().replace(/-/g, "").toUpperCase()}`;
-export const quoteKindLabel = (kind: string) => ({ redemption: "银行赎回 / 回购价", bank_value: "银行展示市值", nav: "正式净值", estimate: "估算", price: "价格" }[kind] || kind);
+export const quoteKindLabel = (kind: string) => ({ redemption: "银行赎回 / 回购价", bank_value: "银行展示市值", nav: "正式净值", estimate: "估算", reference: "国际金价折算参考", price: "价格" }[kind] || kind);
