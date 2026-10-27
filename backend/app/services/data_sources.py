@@ -167,12 +167,13 @@ def fetch(db, p, asset, kind, adapters=None):
             return {"status": "permission_denied", "message": "来源授权失败或额度不足，请在数据源中检查 Key 和权限"}
         reason = str(e) if isinstance(e, RuntimeError) else type(e).__name__
         messages = {"dependency_missing": "AKShare 依赖未安装完整，请按安装说明重装依赖",
+                    "encoding_error": "取数进程字符编码不一致，已有数据已保留；请更新后端程序后重试",
                     "ProxyError": "上游或代理连接失败，请检查本机代理设置或稍后重试",
                     "SSLError": "来源证书验证失败，请检查本机证书和代理设置",
                     "Timeout": "来源请求超时，请稍后重试", "ReadTimeout": "来源请求超时，请稍后重试",
                     "KeyError": "来源字段格式发生变化，请更新适配器后重试",
                     "JSONDecodeError": "来源未返回预期数据，请稍后重试或更新适配器"}
-        return {"status": "dependency_missing" if reason == "dependency_missing" else "request_failed",
+        return {"status": reason if reason in {"dependency_missing", "encoding_error"} else "request_failed",
                 "message": messages.get(reason, "来源请求或解析失败，原有数据已保留，请稍后检测连接")}
 
 

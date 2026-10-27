@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -18,13 +19,21 @@ class AKShareAdapter:
     def _call(self, action, **kwargs):
         # Several SDK methods have no timeout parameter. A child gives every call
         # a real deadline without changing global HTTP settings in the web app.
-        result = subprocess.run([sys.executable, str(Path(__file__).resolve())],
-            input=json.dumps({"action": action, "kwargs": kwargs}), text=True, encoding="utf-8",
+        worker_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+        # Own the JSON wire encoding instead of inheriting the Windows console's
+        # code page. Capture bytes so a decode failure is raised here, not hidden
+        # in subprocess's background reader thread as a later None/JSON error.
+        result = subprocess.run([sys.executable, "-X", "utf8", str(Path(__file__).resolve())],
+            input=json.dumps({"action": action, "kwargs": kwargs}).encode("utf-8"), env=worker_env,
             capture_output=True, timeout=int(self.config.get("timeout_seconds", 20)),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if result.returncode:
-            raise RuntimeError("dependency_missing" if "ModuleNotFoundError" in result.stderr else "request_failed")
-        reply = json.loads(result.stdout)
+            raise RuntimeError("dependency_missing" if b"ModuleNotFoundError" in result.stderr else "request_failed")
+        try:
+            stdout = result.stdout.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("encoding_error") from exc
+        reply = json.loads(stdout)
         if "error" in reply:
             raise RuntimeError(reply["error"])
         return reply["items"]

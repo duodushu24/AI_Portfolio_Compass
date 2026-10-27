@@ -3776,6 +3776,7 @@ export function providerStatusLabel(status: string) {
     configured: "已配置",
     disabled: "未启用",
     dependency_missing: "缺少依赖",
+    encoding_error: "编码异常",
     request_failed: "请求失败",
     timeout: "请求超时",
     permission_denied: "授权或额度不足",
