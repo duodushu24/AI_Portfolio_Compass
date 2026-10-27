@@ -26,10 +26,12 @@ Include:
 
 - The app does not implement order placement, cancellation, modification, or
   trading unlock flows.
-- API keys should live only in `.env` or the user's runtime environment.
+- API keys should remain in `.env`, the user's runtime environment, or private
+  user-saved local settings. Configuration responses must mask secret values;
+  do not commit or share the local database containing those settings.
 - Local databases, logs, exports, screenshots, QR codes, and imported account
   files must not be committed.
 - External AI calls should receive only the minimum context needed for a single
   analysis request.
 
-For more implementation detail, see [docs/SECURITY.md](docs/SECURITY.md).
+For current configuration and data-handling behavior, see [README.md](README.md#data-and-privacy) and [docs/API.md](docs/API.md).

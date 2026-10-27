@@ -5,11 +5,11 @@ id: P-009
 title: "功能设计与代码架构评审"
 status: active
 created: "2026-10-18"
-updated: "2026-10-18"
+updated: "2026-10-27"
 changes: []
 related: ["P-005", "P-006", "P-007", "P-008"]
 evidence: ["README.md", "issues/solutions/P-005/S-002-account-ledger-performance.md", "issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md", "backend/app/services/portfolio/ledger.py", "backend/app/services/portfolio/performance.py", "backend/app/services/portfolio/service.py", "backend/tests/test_gf_import.py"]
-next: "依据 P-010/C-023 实现和用户试用结果复核剩余问题，不自动扩展开发范围"
+next: "保留同秒顺序、转托管分红和诊断未知值事项，待用户确认处理范围后再推进"
 priority: high
 tags: ["review", "architecture", "portfolio", "returns"]
 ---
@@ -17,6 +17,8 @@ tags: ["review", "architecture", "portfolio", "returns"]
 # P-009：功能设计与代码架构评审
 
 ## 当前进度与授权
+
+2026-10-27 用户表示尚未理解剩余问题，同意先保留 P-009，不授权本轮修复；P-005、P-006、P-007、P-008、P-010 已另行同意关闭。这里保留的是特殊场景：同一秒先入金再买入可能因回放顺序被拒绝；持仓全转走后收到分红，其阶段归属未定；价格、成本或收益率未知时，兼容投影可能传出零，让诊断误以为已有明确数值。新 Agent 讨论需要识别这些边界，但不自动扩大为全部修复任务。
 
 已按指定 architecture-design-review skill 完成基于 `400fc3ad327bab1eb6c02f57af338146173e4d75` 和全部相关未提交差异的评审；当时业务代码相对 71a00fb 未变。发现与建议已向用户交付。用户随后明确产品面向通用部署、低频资产配置管理，并授权实施账户起点与历史收益衔接，另见 [P-010](P-010-account-onboarding-profit-carry.md) / [C-023](../CODE_CHANGE_LOG/C-023-onboarding-profit-carry.md)。
 
@@ -49,7 +51,7 @@ tags: ["review", "architecture", "portfolio", "returns"]
 
 原联合导入分红成本旧断言已由 C-023 修正并验证；本页保留初始失败作为评审证据，不再将其列为待修。完整测试、正式账户验收与剩余问题仍独立。
 
-P-005/P-006/P-007/P-008 均有实施与有限验证记录，仍缺各自明确的实际用户验收，P-006 还缺黄金专用浏览器视觉检查；评审通过不自动关闭这些问题。P-001/P-003/P-004 已关闭，P-002 继续暂停。
+P-005/P-006/P-007/P-008/P-010 已于 2026-10-27 由用户明确同意关闭，不是由本评审自动推定验收。C-032 已补充黄金参考价及日期的隔离页面检查；不扩大为完整真实银行操作验证。P-001/P-003/P-004 已关闭，P-002 继续暂停，P-011 保持原状态。
 
 ## 有限交付条件
 

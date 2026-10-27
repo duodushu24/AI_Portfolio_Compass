@@ -3,13 +3,14 @@ schema: project-memory/v1
 kind: issue
 id: P-005
 title: "全账户持仓记录与收益统计"
-status: active
+status: closed
 created: "2026-10-13"
 updated: "2026-10-27"
 changes: ["C-007", "C-008", "C-009", "C-010", "C-012", "C-013", "C-014", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025", "C-026", "C-027", "C-028", "C-029", "C-030", "C-034"]
 related: ["P-001", "P-002", "P-007"]
 evidence: ["issues/solutions/P-005/S-002-account-ledger-performance.md", "CODE_CHANGE_LOG/C-007-holding-return-history.md", "CODE_CHANGE_LOG/C-008-account-ledger-performance.md", "CODE_CHANGE_LOG/C-009-account-names-profit-basis.md", "CODE_CHANGE_LOG/C-010-portfolio-history-and-layout.md", "CODE_CHANGE_LOG/C-012-portfolio-and-closed-query.md", "CODE_CHANGE_LOG/C-013-gf-ledger-import.md", "CODE_CHANGE_LOG/C-014-current-real-quotes.md", "CODE_CHANGE_LOG/C-018-weekly-close-baseline.md", "CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md", "CODE_CHANGE_LOG/C-020-account-data-reset.md", "CODE_CHANGE_LOG/C-021-historical-fx-selection.md", "CODE_CHANGE_LOG/C-022-quote-mark-display.md"]
-next: "验收账户事项筛选、历史汇率沿用后的人民币成本与清仓折算，以及手工更新和历史纠错"
+closed_reason: "2026-10-27 用户明确同意本轮关闭"
+closed_result: "账户记账、组合收益、历史纠错及事项筛选按现有实现结束；P-009 的独立剩余问题和 P-011 数据源验收继续保留"
 priority: high
 tags: ["holdings", "returns", "history", "cash", "ledger"]
 ---
@@ -17,6 +18,8 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 # P-005：全账户持仓记录与收益统计
 
 ## 当前进度
+
+2026-10-27 用户核对状态后明确同意关闭 P-005。本轮按现有实现和既有验证结束，不新增真实账目操作、测试或逐项使用结果；后续新问题独立登记，P-009 和 P-011 保持原状态。以下日期段落保存各实施批次当时的状态，不再表示当前待验收清单。
 
 2026-10-27 [C-034](../CODE_CHANGE_LOG/C-034-all-account-market-refresh-filters.md) 在账户记账“事项”列加入多选筛选、重置与筛选后分页，切换账户清除条件；资产组合同时增加全账户手动市值更新。仅前端改动，不改账目或计算。构建和 15 项隔离页面交互通过，真实账户使用待验收。
 
@@ -47,7 +50,7 @@ tags: ["holdings", "returns", "history", "cash", "ledger"]
 - [C-018](../CODE_CHANGE_LOG/C-018-weekly-close-baseline.md)/[C-019](../CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md)：独立收盘收益基准、周度观察、真实交易分组标记、历史非零持仓及原币清仓摘要。没有完整估值的交易日不制造收益点。
 - [C-020](../CODE_CHANGE_LOG/C-020-account-data-reset.md) 的授权清空是一次性历史操作；用户已重新建账，不是仍待执行的计划。[C-021](../CODE_CHANGE_LOG/C-021-historical-fx-selection.md) 已修复历史汇率沿用与人民币折算，33 项相关检查、构建及正式浏览器记录保留；[C-022](../CODE_CHANGE_LOG/C-022-quote-mark-display.md) 仅去掉价格旁“旧”字，悬停时间/来源保留，构建通过。
 
-**关闭判断：保持 active。** 技术实施与多轮隔离/正式只读检查已有依据，尚无最后一轮历史汇率、纠错和页面效果的明确用户验收反馈。未完成事项限定为现有验收，不重新开启已完成导入、清空或曲线开发。全面功能和架构评审另见 [P-009](P-009-function-architecture-review.md)，不以新评审无限扩展本问题。
+**关闭判断：已关闭。** 2026-10-27 用户同意按现有实现结束本轮。该决定不代表全部金融场景均已实测，也不解决 [P-009](P-009-function-architecture-review.md) 中的剩余问题；本轮不再以重复页面验收长期维持 active。
 
 P-001 的日记已获用户验收并关闭；本问题不启动 P-002 的 Agent 复盘。S-001 已归档，旧阶段 II/III 不再执行。
 
@@ -81,10 +84,10 @@ P-001 的日记已获用户验收并关闭；本问题不启动 P-002 的 Agent 
 | 组合现金、入出金、内部转账与收益正确分离 | C-008/C-018 的资金/范围/全出金与基准测试；不等同全面金融审计 |
 | 市值更新形成有依据的观察点，各页面同源 | C-018 收盘基准/周度估值；C-019 保留交易标记；不补缺价日 |
 | 补录与纠错可重建，历次清仓可查 | C-010 试算/回滚/确认，C-019 阶段查询；用户已实际重建账户 |
-| 币种、缺失与汇率沿用依据清楚 | C-021 33 项相关检查、构建与正式浏览器通过；最后用户反馈待完成 |
-| 页面职责收敛、价格日期可查 | C-012/C-019 页面检查，C-022 构建；最后用户页面验收待完成 |
+| 币种、缺失与汇率沿用依据清楚 | C-021 33 项相关检查、构建与正式浏览器通过；2026-10-27 用户同意本轮关闭 |
+| 页面职责收敛、价格日期可查 | C-012/C-019 页面检查，后续 C-027/C-034 补齐日期及筛选；2026-10-27 用户同意本轮关闭 |
 
-本轮只做记录核对，不重跑上述成功检查。已知券商导入旧分红成本断言由 P-007 跟踪，新评审入口 P-009 已明确此缺口，不声明全套回归通过。自动行情、K 线、交易执行、精确每日历史和 Agent 检索不作本问题完成条件。
+本轮只维护关闭记录，不重跑上述成功检查。旧联合导入分红成本断言已由 C-023 修正并定向通过，不再列为缺口，也不据此声明全套回归通过。自动行情、K 线、交易执行、精确每日历史和 Agent 检索不作本问题完成条件。
 
 ## 方案尝试
 
@@ -93,7 +96,7 @@ P-001 的日记已获用户验收并关闭；本问题不启动 P-002 的 Agent 
 - 选择：以期初、成交、独立资金事项和报价驱动一套账目；当前摊薄成本（P-007）与净值收益各司其职，现金及资金流纳入完整账户统计。
 - 产品：日常买卖、资金、分红、市值操作自动生成持仓与收益历史，主图为累计账户净值收益率，详情包括已清仓标的。
 - 架构：集中账目、业绩计算和业务服务，复用既有模型/表单，消除重复公式与分散状态；已有代码按新方案保留或重构。
-- 状态：C-008 至 C-022 的相关实施及有限验证已完成；当前成本/分红、基准和汇率规则分别以 P-007、C-018/C-019、C-021 为准，最后用户验收待完成。[详细 S-002](solutions/P-005/S-002-account-ledger-performance.md) 为唯一设计依据。
+- 状态：基础实施与有限验证已完成，2026-10-27 用户同意本轮关闭；成本/分红以 P-007 为准，基准与历史汇率依据见 C-018/C-019、C-021，后续扩展沿本页 C 链接追溯。[详细 S-002](solutions/P-005/S-002-account-ledger-performance.md) 为基础设计依据。
 
 ### S-001｜平均成本持仓历史与组合收益曲线｜2026-10-13｜已归档、停止执行
 

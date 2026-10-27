@@ -16,6 +16,8 @@ AI Portfolio Compass 的起点很朴素：很多个人投资者并不只有一�
 
 买卖记录只更新数量、成本和现金，不更新市值价或市值更新日期，包括首次买入。没有有效报价的标的会提示缺价，请通过“更新市值”填写收盘价、净值或银行报价；已有报价继续用于交易后持仓估值。
 
+“资产组合”右上方的“更新全部市值”可依次更新全部账户的行情和所需汇率，沿用各账户的数据源配置；单个账户失败不影响其余账户，结束后汇总结果并刷新。该操作仅在当前页面手动运行，离开后不再派发后续账户，不更新新闻。“账户与数据 → 账户记账”的“事项”列可多选筛选及重置，筛选覆盖全部账目，切换账户清除条件。
+
 历史收益基准缺少报价或汇率时，账户与持仓仍可读取，相关统计期收益显示待补齐，并提供具体补录入口；不会自动改用后来日期作为起点。新建或修改基准仍须有完整估值和正净资产。
 
 这个项目首先要解决的是 **多账户、多市场、多币种资产的统一查看与分析**。在此基础上，它再把真实持仓、历史成交、仓位意图、行情新闻和复盘结果放进同一个本地系统，让 AI 在有上下文、有边界、有记录的前提下辅助你做投资组合管理。
@@ -119,7 +121,7 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 - 只读同步，不执行交易动作。
 - 不保存交易密码。
 - 不调用交易解锁、下单、撤单、改单接口。
-- API Key 只从环境变量读取。
+- API Key 由本机环境变量或用户在设置中保存的本地配置提供；不附带公共密钥，不提交到 Git，敏感字段对外返回时脱敏。
 - 外部 AI 调用需要显式授权，并且只发送单次分析所需的最小上下文。
 - 本地数据库、日志、导入文件、导出文件和二维码默认不进入 Git。
 
@@ -146,7 +148,7 @@ AI Portfolio Compass 想解决的是这个更长期的问题：让 AI 成为你�
 
 成本计算唯一采用摊薄法：本持有阶段净成本＝买入清算支出－卖出净收入－净现金分红，除以剩余数量得到摊薄成本价；部分卖出和分红均会改变成本价，持仓盈亏已含二者，数量归零才结算清仓收益，再买入重新开阶段。分红按记账时间视同到账，不处理除息到到账的时间差，不自动调整市值价；清仓收益率以该阶段累计买入支出为分母，非正或未知分母不输出比例。详见 [P-007/S-001](issues/solutions/P-007/S-001-diluted-cost-dividend-accounting.md) 和 [C-017](CODE_CHANGE_LOG/C-017-manual-dividend-cost.md)。
 
-组合收益从确认的期初市值及现金，或单独设置的完整估值基准开始；改收益基准不改历史账目与成本。盈亏金额＝当前总资产－基准总资产－期间净外部入金，收益率采用净值份额法；不把清仓利润或分红再加一次。每周等不规则观察均可，曲线连接已保存估值，期间买卖有独立交易标记，不推算缺价交易日收益。历史汇率优先本笔有效填写，否则沿用实际时间不晚于事件的最近保存记录，补录/纠错/作废后重算，禁止未来汇率倒填；来源、时间及沿用/估算信息可查。未知历史人民币取得成本不以当前汇率补造。相关实现见 [C-018](CODE_CHANGE_LOG/C-018-weekly-close-baseline.md)、[C-019](CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md)、[C-021](CODE_CHANGE_LOG/C-021-historical-fx-selection.md)。
+统计期收益从确认的期初市值及现金，或单独设置的完整估值基准开始；改收益基准不改历史账目与成本。统计期盈亏＝当前总资产－基准总资产－期间净外部入金，统计期收益率采用净值份额法。累计盈亏另包含账户历史结转及期初持仓盈亏，累计收益率按累计净投入计算，两种口径由页面切换；不把清仓利润或分红再加一次。每周等不规则观察均可，曲线连接已保存估值，期间买卖有独立交易标记，不推算缺价交易日收益。历史汇率优先本笔有效填写，否则沿用实际时间不晚于事件的最近保存记录，补录/纠错/作废后重算，禁止未来汇率倒填；来源、时间及沿用/估算信息可查。未知历史人民币取得成本不以当前汇率补造。当前口径见 [P-010](issues/P-010-account-onboarding-profit-carry.md)，基准与历史汇率依据见 [C-018](CODE_CHANGE_LOG/C-018-weekly-close-baseline.md)、[C-019](CODE_CHANGE_LOG/C-019-chart-transactions-and-closed-summary.md)、[C-021](CODE_CHANGE_LOG/C-021-historical-fx-selection.md)。
 
 建档后持仓导入作为核对来源，不能覆盖账目；规范成交导入须填写币种、费用和资产/数量单位，成交号防重。旧快照与旧收益观察可只读查看。基础设计见 [S-002](issues/solutions/P-005/S-002-account-ledger-performance.md)，最新状态及有限验收项以 [current_state.md](current_state.md) 为准；稳定行情和 K 线不在这些批次修复范围内，不承诺精确每日收益曲线。
 
@@ -278,7 +280,7 @@ DEEPSEEK_MODEL=deepseek-chat
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
-如果没有配置 `DEEPSEEK_API_KEY`，单标的分析会使用本地结构化规则降级；需要外部模型参与的长报告工作流会明确提示未配置，不会伪装成 AI 报告。
+外部模型使用当前本地设置或环境变量中生效的配置，不仅取决于 `DEEPSEEK_API_KEY`。未配置可调用的外部模型时，单标的分析会使用明确标识的本地结构化规则降级；需要外部模型参与的长报告工作流会提示未配置，不会伪装成 AI 报告。
 
 ## 可选：首次连接 Futu / moomoo OpenD
 
@@ -327,14 +329,16 @@ Futu 账户不需要在“账户管理”里手动创建。只有 Excel、PDF、
 
 - [本地启动和数据源说明](#快速开始)
 - [API Contract](docs/API.md)
+- [当前状态与问题入口](current_state.md)
+- [下一阶段 Agent 需求讨论启动提示词](docs/agent-next-stage-kickoff.md)
 - [安全边界](SECURITY.md)
 
 ## 测试
 
-从仓库根目录运行后端测试：
+按改动风险运行直接相关的后端测试，不默认重跑全套；涉及广泛回归或明确要求时再扩大范围。例如从仓库根目录运行账本测试：
 
 ```bash
-pytest
+python -m pytest backend/tests/test_portfolio_ledger.py -q
 ```
 
 构建前端：
@@ -485,7 +489,7 @@ Safety is a first-class design constraint:
 - Read-only brokerage sync.
 - No trading password storage.
 - No trading unlock, order placement, cancellation, or modification calls.
-- API keys are read from environment variables.
+- API keys come from local environment variables or user-saved local settings; secret fields are masked in configuration responses and must not be committed.
 - External AI calls require explicit consent and send only the minimum context required for one analysis.
 - Local databases, logs, imports, exports, screenshots, and QR codes are ignored by Git by default.
 
@@ -495,14 +499,15 @@ Safety is a first-class design constraint:
 - Multi-account asset overview for scattered A-share funds, A-share stocks, US stocks, Hong Kong stocks, and manually imported assets.
 - Account selection, account overview, cross-account analysis, and local data management.
 - Account ledger with one diluted-cost method: net purchases less net sales and cash dividends determine the remaining cost. Partial sales and dividends stay in holding PnL until the position closes; a repurchase starts a new phase. Dividends are treated as received when recorded.
-- Portfolio performance includes cash and external flows, with an optional complete valuation baseline, irregular valuation points, and separate trade markers. Historical FX uses an explicit valid rate or the most recent saved rate at or before the event; missing historical acquisition costs are not invented. See the Chinese capability notes and project state for validation limits.
+- Portfolio performance includes cash and external flows. Users can switch between cumulative PnL/return and period PnL/NAV return; cumulative figures include historical profit carry and opening holding PnL. Irregular valuation points and separate trade markers remain available. Historical FX uses an explicit valid rate or the most recent saved rate at or before the event; missing historical acquisition costs are not invented. See the Chinese capability notes and project state for validation limits.
+- A manual all-account market update reuses each account's source settings, retains partial successes, and refreshes the portfolio. It stops dispatching further accounts when the page is left. Ledger records support multi-select event-type filters.
 - Manual RMB bank-gold accounting in grams, with independent product quotes and no automatic bank-price feed.
 - Position diagnosis with position layers, concentration checks, PnL state, and risk notes.
 - Decision cards with recommendation, confidence, reasons, risks, key prices, and data status.
 - Position detail pages with holdings, news, K-line summaries, AI analysis, and layer correction.
 - Trade review with execution outcome, later market movement, discipline labels, and risk focus.
-- Independent investment diaries under Review: save original text to SQLite and dated Markdown files, browse/search entries, and edit them. AI distillation is planned for the next phase.
-- Structured AI workflows for customer profiling, portfolio diagnosis, and allocation suggestions.
+- Investment diaries support original text, saved multi-turn AI discussions, user-confirmed summaries and tags, with SQLite and dated Markdown storage. Agent retrieval across historical diaries is still unimplemented.
+- Customer profiling, portfolio diagnosis and allocation reports currently use predefined tool sequences. Dynamic Agent orchestration and optional retrieval/framework choices are the next requirements discussion, not completed features; see the [kickoff prompt](docs/agent-next-stage-kickoff.md).
 - Free AKShare data by default: mainland and US stock/ETF closes, published fund NAVs, XAU reference valuation, dated CNY FX and mainland stock news. Free/paid providers share one settings area; Futu is optional and Marketaux retains its key-based free quota. Unimplemented provider placeholders are not offered as working integrations.
 - Freshness rules for holdings, trades, quotes, news, FX rates, profiles, and decision cards.
 
@@ -602,7 +607,7 @@ DEEPSEEK_MODEL=deepseek-chat
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
-Without `DEEPSEEK_API_KEY`, single-position analysis falls back to local structured rules. Long-form workflows that require an external model will explicitly report that the model is not configured instead of pretending to generate an AI report.
+External calls use the effective local model settings or environment configuration, not only `DEEPSEEK_API_KEY`. Without a callable external model, single-position analysis falls back to explicitly identified local rules. Long-form workflows that require an external model report the missing configuration rather than pretending to generate an AI report.
 
 ## Data and Privacy
 
@@ -624,10 +629,10 @@ See [SECURITY.md](SECURITY.md) for details.
 
 ## Tests
 
-Run backend tests from the repository root:
+Run tests relevant to the change from the repository root; broaden to the full suite only for broad regression risk or an explicit request. For example:
 
 ```bash
-pytest
+python -m pytest backend/tests/test_portfolio_ledger.py -q
 ```
 
 Build the frontend:

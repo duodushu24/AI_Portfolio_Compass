@@ -40,8 +40,10 @@ Run the app from the repository root:
 
 - Do not commit `.env`, database files, logs, account exports, screenshots with
   private holdings, QR codes, or real API keys.
-- Run backend tests with `pytest`.
-- Run the frontend build with `npm run build` from `frontend/`.
+- Run tests directly relevant to the change. Run the full backend suite only for
+  broad regression risk or an explicit request; do not repeatedly rerun successful checks.
+- For frontend changes, run the relevant interaction check and/or `npm run build`
+  from `frontend/`, according to risk. Documentation-only changes need document checks.
 - Keep new provider integrations optional and disabled unless configured by the user.
 - Preserve the no-trading-action boundary unless the project maintainers have
   explicitly accepted a design change.
